@@ -10,6 +10,7 @@ const api = require('./services/api');
 
 // Import screens
 const SplashScreen = require('./screens/splash');
+const AuthScreen = require('./screens/auth');
 const DashboardScreen = require('./screens/dashboard');
 const RankScreen = require('./screens/rank');
 const PromoteScreen = require('./screens/promote');
@@ -48,6 +49,7 @@ class Application {
         // Initialize screens
         this.screens = {
             splash: new SplashScreen(this),
+            auth: new AuthScreen(this),
             dashboard: new DashboardScreen(this),
             rank: new RankScreen(this),
             promote: new PromoteScreen(this),
@@ -75,12 +77,8 @@ class Application {
             // Wait for any key
             await input.waitForAnyKey();
 
-            // Check if first run or not configured
-            if (config.isFirstRun() || !config.isConfigured()) {
-                await this.showScreen('setup');
-            } else {
-                await this.showScreen('dashboard');
-            }
+            // Always show auth screen first (handles both setup and login)
+            await this.showScreen('auth');
 
         } catch (error) {
             this.handleFatalError(error);

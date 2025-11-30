@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 class ConfigService {
     constructor() {
@@ -73,7 +74,16 @@ class ConfigService {
 
             // Command/search history
             searchHistory: [],
-            maxSearchHistory: 50
+            maxSearchHistory: 50,
+
+            // Security settings (password stored as hash, never plaintext)
+            // Password is stored in ~/.rankbot/config.json (user home, NOT project files)
+            security: {
+                passwordHash: null,      // Scrypt-derived key (never store plaintext)
+                passwordSalt: null,      // Random salt for password hashing
+                failedAttempts: 0,       // Track failed login attempts
+                lockedUntil: null        // Lockout timestamp if too many failures
+            }
         };
     }
 
@@ -616,6 +626,202 @@ class ConfigService {
         }
         
         return suggestions.slice(0, limit);
+    }
+
+    // ============================================
+    // PASSWORD / SECURITY MANAGEMENT
+    // ============================================
+
+    /**
+     * Hash a password using scrypt (secure key derivation)
+     * @param {string} password - Plain text password
+     * @param {string} salt - Salt for hashing (generate new if not provided)
+     * @returns {Object} { hash, salt }
+     */
+    hashPassword(password, salt = null) {
+        // Generate salt if not provided
+        if (!salt) {
+            salt = crypto.randomBytes(32).toString('hex');
+        }
+        
+        // Use scrypt for secure password hashing
+        // N=16384, r=8, p=1 are recommended parameters
+        const hash = crypto.scryptSync(password, salt, 64, {
+            N: 16384,
+            r: 8,
+            p: 1
+        }).toString('hex');
+        
+        return { hash, salt };
+    }
+
+    /**
+     * Check if a password has been set up
+     * @returns {boolean}
+     */
+    isPasswordConfigured() {
+        return !!(this.config.security?.passwordHash && this.config.security?.passwordSalt);
+    }
+
+    /**
+     * Set up a new password
+     * @param {string} password - Plain text password (will be hashed)
+     */
+    setPassword(password) {
+        const { hash, salt } = this.hashPassword(password);
+        
+        if (!this.config.security) {
+            this.config.security = {};
+        }
+        
+        this.config.security.passwordHash = hash;
+        this.config.security.passwordSalt = salt;
+        this.config.security.authEnabled = true;
+        this.config.security.failedAttempts = 0;
+        this.config.security.lockedUntil = null;
+        
+        this.saveImmediate(); // Critical security operation
+    }
+
+    /**
+     * Verify a password against stored hash
+     * @param {string} password - Plain text password to verify
+     * @returns {boolean} True if password matches
+     */
+    verifyPassword(password) {
+        // Check for lockout first
+        if (this.isLockedOut()) {
+            return false;
+        }
+        
+        let isValid = false;
+        
+        if (this.config.security?.passwordHash && this.config.security?.passwordSalt) {
+            // Check against stored hash
+            const { hash } = this.hashPassword(password, this.config.security.passwordSalt);
+            
+            // Use timing-safe comparison to prevent timing attacks
+            try {
+                isValid = crypto.timingSafeEqual(
+                    Buffer.from(hash),
+                    Buffer.from(this.config.security.passwordHash)
+                );
+            } catch {
+                isValid = false;
+            }
+        }
+        
+        // Track failed attempts
+        if (!isValid) {
+            this.recordFailedAttempt();
+        } else {
+            this.clearFailedAttempts();
+        }
+        
+        return isValid;
+    }
+
+    /**
+     * Record a failed login attempt
+     */
+    recordFailedAttempt() {
+        if (!this.config.security) {
+            this.config.security = {};
+        }
+        
+        this.config.security.failedAttempts = (this.config.security.failedAttempts || 0) + 1;
+        
+        // Lock out after 5 failed attempts for 5 minutes
+        if (this.config.security.failedAttempts >= 5) {
+            this.config.security.lockedUntil = Date.now() + (5 * 60 * 1000);
+        }
+        
+        this.save();
+    }
+
+    /**
+     * Clear failed attempts after successful login
+     */
+    clearFailedAttempts() {
+        if (this.config.security) {
+            this.config.security.failedAttempts = 0;
+            this.config.security.lockedUntil = null;
+            this.save();
+        }
+    }
+
+    /**
+     * Check if account is locked out due to failed attempts
+     * @returns {boolean}
+     */
+    isLockedOut() {
+        if (!this.config.security?.lockedUntil) {
+            return false;
+        }
+        
+        if (Date.now() > this.config.security.lockedUntil) {
+            // Lockout expired
+            this.config.security.lockedUntil = null;
+            this.config.security.failedAttempts = 0;
+            this.save();
+            return false;
+        }
+        
+        return true;
+    }
+
+    /**
+     * Get remaining lockout time in seconds
+     * @returns {number} Seconds remaining, or 0 if not locked
+     */
+    getLockoutRemaining() {
+        if (!this.config.security?.lockedUntil) {
+            return 0;
+        }
+        
+        const remaining = Math.ceil((this.config.security.lockedUntil - Date.now()) / 1000);
+        return remaining > 0 ? remaining : 0;
+    }
+
+    /**
+     * Remove password protection
+     */
+    removePassword() {
+        if (this.config.security) {
+            this.config.security.passwordHash = null;
+            this.config.security.passwordSalt = null;
+            this.config.security.failedAttempts = 0;
+            this.config.security.lockedUntil = null;
+            this.saveImmediate();
+        }
+    }
+
+    /**
+     * Change password (requires current password verification)
+     * @param {string} currentPassword - Current password
+     * @param {string} newPassword - New password
+     * @returns {boolean} True if password was changed
+     */
+    changePassword(currentPassword, newPassword) {
+        if (!this.verifyPassword(currentPassword)) {
+            return false;
+        }
+        
+        this.setPassword(newPassword);
+        return true;
+    }
+
+    /**
+     * Get security status for display
+     * @returns {Object} Security status info
+     */
+    getSecurityStatus() {
+        return {
+            passwordSet: this.isPasswordConfigured(),
+            isLockedOut: this.isLockedOut(),
+            lockoutRemaining: this.getLockoutRemaining(),
+            failedAttempts: this.config.security?.failedAttempts || 0
+        };
     }
 }
 

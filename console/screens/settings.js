@@ -15,12 +15,19 @@ class SettingsScreen {
     constructor(app) {
         this.app = app;
         this.state = {
-            section: 'connection', // 'connection', 'preferences', 'theme'
+            section: 'connection', // 'connection', 'preferences', 'theme', 'security'
             editing: null,
             editValue: '',
             showApiKey: false,
             testingConnection: false,
-            testResult: null
+            testResult: null,
+            // Security state
+            securityMode: null,  // 'setPassword', 'changePassword', 'confirmNew'
+            currentPassword: '',
+            newPassword: '',
+            confirmPassword: '',
+            securityError: null,
+            securitySuccess: null
         };
     }
 
@@ -34,7 +41,13 @@ class SettingsScreen {
             editValue: '',
             showApiKey: false,
             testingConnection: false,
-            testResult: null
+            testResult: null,
+            securityMode: null,
+            currentPassword: '',
+            newPassword: '',
+            confirmPassword: '',
+            securityError: null,
+            securitySuccess: null
         };
 
         await this.render();
@@ -62,13 +75,17 @@ class SettingsScreen {
 
         // Preferences section
         this.renderPreferencesSection(contentX, currentY, width - 6);
-        currentY += 8;
+        currentY += 7;
 
         // Theme section
         this.renderThemeSection(contentX, currentY, width - 6);
+        currentY += 4;
+
+        // Security section
+        this.renderSecuritySection(contentX, currentY, width - 6);
 
         // Key hints
-        if (this.state.editing) {
+        if (this.state.editing || this.state.securityMode) {
             components.drawKeyHints([
                 { key: 'ENTER', action: 'Save' },
                 { key: 'ESC', action: 'Cancel' }
@@ -78,7 +95,7 @@ class SettingsScreen {
                 { key: 'U', action: 'Edit URL' },
                 { key: 'K', action: 'Edit Key' },
                 { key: 'T', action: 'Test' },
-                { key: '1-4', action: 'Toggle' },
+                { key: 'P', action: 'Password' },
                 { key: 'ESC', action: 'Back' }
             ]);
         }
@@ -191,6 +208,75 @@ class SettingsScreen {
     }
 
     /**
+     * Render security section
+     */
+    renderSecuritySection(x, y, width) {
+        const labelColor = renderer.color('label');
+        const textColor = renderer.color('text');
+        const dimColor = renderer.color('textDim');
+        const successColor = renderer.color('success');
+        const errorColor = renderer.color('error');
+        const keyColor = renderer.color('menuKey');
+
+        const securityStatus = config.getSecurityStatus();
+
+        renderer.writeAt(x, y, `${renderer.color('subtitle')}Security${renderer.constructor.ANSI.RESET}`);
+        components.drawSeparator(x, y + 1, width);
+
+        // Password status
+        renderer.writeAt(x, y + 2, `${labelColor}Status:${renderer.constructor.ANSI.RESET}    ${successColor}Password protected${renderer.constructor.ANSI.RESET}`);
+
+        // Password action based on state
+        if (this.state.securityMode) {
+            // Show password input field
+            this.renderPasswordInput(x, y + 3);
+        } else {
+            // Show password management options
+            renderer.writeAt(x, y + 3, `${keyColor}[P]${renderer.constructor.ANSI.RESET} ${textColor}Change password${renderer.constructor.ANSI.RESET}`);
+        }
+
+        // Success/Error messages
+        if (this.state.securitySuccess) {
+            renderer.writeAt(x, y + 5, `${successColor}${this.state.securitySuccess}${renderer.constructor.ANSI.RESET}`);
+        }
+        if (this.state.securityError) {
+            renderer.writeAt(x, y + 5, `${errorColor}${this.state.securityError}${renderer.constructor.ANSI.RESET}`);
+        }
+    }
+
+    /**
+     * Render password input field
+     */
+    renderPasswordInput(x, y) {
+        const textColor = renderer.color('text');
+        const dimColor = renderer.color('textDim');
+        
+        let label = '';
+        let value = '';
+        
+        if (this.state.securityMode === 'setPassword') {
+            label = 'New password:';
+            value = this.state.newPassword;
+        } else if (this.state.securityMode === 'changePassword') {
+            label = 'Current password:';
+            value = this.state.currentPassword;
+        } else if (this.state.securityMode === 'confirmNew') {
+            label = 'Confirm password:';
+            value = this.state.confirmPassword;
+        } else if (this.state.securityMode === 'enterNew') {
+            label = 'New password:';
+            value = this.state.newPassword;
+        }
+        
+        const masked = '*'.repeat(value.length);
+        renderer.writeAt(x, y, `${dimColor}${label}${renderer.constructor.ANSI.RESET} ${textColor}${masked}_${renderer.constructor.ANSI.RESET}`);
+        
+        if (this.state.securityMode === 'setPassword' || this.state.securityMode === 'enterNew') {
+            renderer.writeAt(x, y + 1, `${dimColor}(min 4 characters)${renderer.constructor.ANSI.RESET}`);
+        }
+    }
+
+    /**
      * Setup input handlers
      */
     setupInput() {
@@ -198,6 +284,11 @@ class SettingsScreen {
 
         if (this.state.editing) {
             this.setupEditingHandlers();
+            return;
+        }
+
+        if (this.state.securityMode) {
+            this.setupSecurityInputHandlers();
             return;
         }
 
@@ -218,12 +309,19 @@ class SettingsScreen {
         input.on('3', () => this.togglePreference('autoRefresh'));
         input.on('4', () => this.togglePreference('soundNotifications'));
 
-        // Theme selection (A-F)
+        // Theme selection (A-F for themes)
         const allThemes = themes.getAllThemes();
         allThemes.forEach((theme, i) => {
+            // Use keys after security keys to avoid conflicts
             const key = String.fromCharCode(97 + i); // a, b, c, etc.
-            input.on(key, () => this.setTheme(theme.id));
+            // Skip 'p' and 'r' as they're used for password
+            if (key !== 'p' && key !== 'r') {
+                input.on(key, () => this.setTheme(theme.id));
+            }
         });
+
+        // Security options - change password
+        input.on('p', () => this.startPasswordSetup());
     }
 
     /**
@@ -321,6 +419,140 @@ class SettingsScreen {
         config.setTheme(themeId);
         renderer.setTheme(themeId);
         this.render();
+    }
+
+    /**
+     * Setup security input handlers
+     */
+    setupSecurityInputHandlers() {
+        const mode = this.state.securityMode;
+        let currentField = '';
+        
+        if (mode === 'setPassword' || mode === 'enterNew') {
+            currentField = 'newPassword';
+        } else if (mode === 'changePassword') {
+            currentField = 'currentPassword';
+        } else if (mode === 'confirmNew') {
+            currentField = 'confirmPassword';
+        }
+
+        input.startTextInput({
+            initialValue: this.state[currentField],
+            maxLength: 50,
+            onInput: (value) => {
+                this.state[currentField] = value;
+                this.state.securityError = null;
+                this.render();
+            },
+            onComplete: (value) => {
+                this.handleSecurityInput(value);
+            },
+            onCancel: () => {
+                this.cancelSecurityMode();
+            }
+        });
+    }
+
+    /**
+     * Handle security input submission
+     */
+    async handleSecurityInput(value) {
+        input.stopTextInput();
+        
+        if (this.state.securityMode === 'setPassword') {
+            // Setting new password
+            if (value.length < 4) {
+                this.state.securityError = 'Password must be at least 4 characters';
+                this.state.newPassword = '';
+                this.render();
+                this.setupInput();
+                return;
+            }
+            
+            // Move to confirm
+            this.state.newPassword = value;
+            this.state.securityMode = 'confirmNew';
+            this.render();
+            this.setupInput();
+            
+        } else if (this.state.securityMode === 'confirmNew') {
+            // Confirming new password
+            if (value !== this.state.newPassword) {
+                this.state.securityError = 'Passwords do not match';
+                this.state.securityMode = 'setPassword';
+                this.state.newPassword = '';
+                this.state.confirmPassword = '';
+                this.render();
+                this.setupInput();
+                return;
+            }
+            
+            // Save password
+            config.setPassword(value);
+            this.state.securitySuccess = 'Password set successfully!';
+            this.cancelSecurityMode();
+            
+        } else if (this.state.securityMode === 'changePassword') {
+            // Verifying current password
+            if (!config.verifyPassword(value)) {
+                this.state.securityError = 'Incorrect current password';
+                this.state.currentPassword = '';
+                this.render();
+                this.setupInput();
+                return;
+            }
+            
+            // Move to enter new password
+            this.state.currentPassword = value;
+            this.state.securityMode = 'enterNew';
+            this.render();
+            this.setupInput();
+            
+        } else if (this.state.securityMode === 'enterNew') {
+            // Entering new password after verifying current
+            if (value.length < 4) {
+                this.state.securityError = 'Password must be at least 4 characters';
+                this.state.newPassword = '';
+                this.render();
+                this.setupInput();
+                return;
+            }
+            
+            // Move to confirm
+            this.state.newPassword = value;
+            this.state.securityMode = 'confirmNew';
+            this.render();
+            this.setupInput();
+        }
+    }
+
+    /**
+     * Start password change
+     */
+    startPasswordSetup() {
+        this.state.securityError = null;
+        this.state.securitySuccess = null;
+        this.state.currentPassword = '';
+        this.state.newPassword = '';
+        this.state.confirmPassword = '';
+        
+        // Always require current password to change
+        this.state.securityMode = 'changePassword';
+        
+        this.render();
+        this.setupInput();
+    }
+
+    /**
+     * Cancel security mode
+     */
+    cancelSecurityMode() {
+        this.state.securityMode = null;
+        this.state.currentPassword = '';
+        this.state.newPassword = '';
+        this.state.confirmPassword = '';
+        this.render();
+        this.setupInput();
     }
 
     /**

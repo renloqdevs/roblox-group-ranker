@@ -55,7 +55,7 @@ class SplashScreen {
         renderer.writeCentered(logoY + 8, titleColor + 'Roblox Group Ranking Bot' + renderer.constructor.ANSI.RESET, width);
         
         await animations.sleep(100);
-        renderer.writeCentered(logoY + 9, textColor + 'Version 1.1.0' + renderer.constructor.ANSI.RESET, width);
+        renderer.writeCentered(logoY + 9, textColor + 'Version 1.1.1' + renderer.constructor.ANSI.RESET, width);
 
         // Progress bar position
         const progressY = logoY + 12;
