@@ -302,10 +302,17 @@ class InputHandler {
     }
 
     /**
-     * Clear all listeners
+     * Clear all listeners and reset input state
      */
     clearListeners() {
         this.listeners.clear();
+        this.globalListeners = [];
+        // Also ensure we're in navigation mode for clean screen transitions
+        if (this.inputMode === 'text') {
+            this.inputMode = 'navigation';
+            this.inputBuffer = '';
+            this.textInputOptions = {};
+        }
     }
 
     /**
