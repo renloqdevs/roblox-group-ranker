@@ -76,26 +76,7 @@ chmod +x launch.sh
 - Multiple color themes
 - First-run setup wizard
 
-### Screenshots
 
-```
-+------------------------------------------------------------------+
-|  RANKBOT CONSOLE                                      v1.0.0     |
-+------------------------------------------------------------------+
-|                                                                  |
-|  Bot: GroupRankBot              Group: My Awesome Group          |
-|  Status: Online                 Members: 1,234                   |
-|  Uptime: 2h 34m 12s             Roles: 8                         |
-|                                                                  |
-|  [1] Rank User              [5] View Roles                       |
-|  [2] Promote User           [6] Activity Logs                    |
-|  [3] Demote User            [7] Settings                         |
-|  [4] Search Members         [8] Help                             |
-|                                                                  |
-|  [Q] Quit                                                        |
-|                                                                  |
-+------------------------------------------------------------------+
-```
 
 ## API Overview
 
