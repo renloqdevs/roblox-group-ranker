@@ -57,6 +57,7 @@ class ConfigService {
             // First run flag
             firstRun: true,
             setupComplete: false,
+            demoMode: false, // True if user skipped setup to explore
 
             // Statistics
             stats: {
@@ -240,6 +241,39 @@ class ConfigService {
      */
     isConfigured() {
         return Boolean(this.config.apiUrl && this.config.apiKey);
+    }
+
+    /**
+     * Check if in demo mode (skipped setup)
+     */
+    isInDemoMode() {
+        return this.config.demoMode === true && !this.isConfigured();
+    }
+
+    /**
+     * Enable demo mode (skip setup)
+     */
+    enableDemoMode() {
+        this.config.demoMode = true;
+        this.config.firstRun = false;
+        this.save();
+    }
+
+    /**
+     * Exit demo mode (user wants to configure)
+     */
+    exitDemoMode() {
+        this.config.demoMode = false;
+        this.config.firstRun = true;
+        this.config.setupComplete = false;
+        this.save();
+    }
+
+    /**
+     * Check if features should work (configured and not in demo mode)
+     */
+    areFeaturesEnabled() {
+        return this.isConfigured() && !this.isInDemoMode();
     }
 
     /**

@@ -66,6 +66,10 @@ class SetupScreen {
         renderer.writeAt(contentX, contentY + 5, `${dimColor}Before you can use this application, we need to configure your${renderer.constructor.ANSI.RESET}`);
         renderer.writeAt(contentX, contentY + 6, `${dimColor}connection to your ranking bot API.${renderer.constructor.ANSI.RESET}`);
 
+        // Skip option
+        const skipColor = renderer.color('menuKey');
+        renderer.writeAt(width - 35, contentY + 3, `${dimColor}Press ${skipColor}[S]${dimColor} to skip and explore${renderer.constructor.ANSI.RESET}`);
+
         // Step indicator
         const stepY = contentY + 9;
         renderer.writeAt(contentX, stepY, `${renderer.color('subtitle')}Step ${this.state.step} of ${this.state.totalSteps}${renderer.constructor.ANSI.RESET}`);
@@ -182,6 +186,9 @@ class SetupScreen {
             process.exit(0);
         });
 
+        // Skip setup option
+        input.on('s', () => this.skipSetup());
+
         input.startTextInput({
             initialValue: this.state.apiUrl,
             maxLength: 100,
@@ -202,6 +209,32 @@ class SetupScreen {
                 }
             }
         });
+    }
+
+    /**
+     * Skip setup and enter demo mode
+     */
+    async skipSetup() {
+        const { width, height } = renderer.getDimensions();
+        
+        // Show confirmation dialog
+        components.drawConfirmDialog(
+            'Skip setup and explore in Demo Mode?',
+            'Ranking features will be disabled until configured.'
+        );
+        
+        const confirmed = await input.confirm(false);
+        
+        if (confirmed) {
+            // Enable demo mode
+            config.enableDemoMode();
+            
+            // Go to dashboard
+            this.app.showScreen('dashboard');
+        } else {
+            await this.render();
+            this.setupInput();
+        }
     }
 
     /**

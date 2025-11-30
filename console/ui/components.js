@@ -129,11 +129,13 @@ class Components {
 
     /**
      * Draw a confirmation dialog
+     * @param {string} message - Primary message
+     * @param {string} subMessage - Optional secondary message (for two-line dialogs)
      */
-    drawConfirmDialog(message, onConfirm, onCancel) {
+    drawConfirmDialog(message, subMessage = null) {
         const { width, height } = renderer.getDimensions();
-        const dialogWidth = 50;
-        const dialogHeight = 7;
+        const dialogWidth = 55;
+        const dialogHeight = subMessage ? 9 : 7;
         const x = Math.floor((width - dialogWidth) / 2);
         const y = Math.floor((height - dialogHeight) / 2);
 
@@ -142,13 +144,18 @@ class Components {
 
         // Message
         const textColor = renderer.color('text');
+        const dimColor = renderer.color('textDim');
         renderer.writeAt(x + 3, y + 2, textColor + message + renderer.constructor.ANSI.RESET);
+
+        // Sub-message if provided
+        if (subMessage) {
+            renderer.writeAt(x + 3, y + 3, dimColor + subMessage + renderer.constructor.ANSI.RESET);
+        }
 
         // Buttons
         const keyColor = renderer.color('menuKey');
-        renderer.writeAt(x + 3, y + 4, `${keyColor}[Y]${renderer.constructor.ANSI.RESET} Yes     ${keyColor}[N]${renderer.constructor.ANSI.RESET} No`);
-
-        return { onConfirm, onCancel };
+        const buttonY = subMessage ? y + 6 : y + 4;
+        renderer.writeAt(x + 3, buttonY, `${keyColor}[Y]${renderer.constructor.ANSI.RESET} Yes     ${keyColor}[N]${renderer.constructor.ANSI.RESET} No`);
     }
 
     /**

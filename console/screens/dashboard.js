@@ -39,21 +39,51 @@ class DashboardScreen {
         // Draw main frame
         const { contentY } = components.drawFrame('RANKBOT CONSOLE', 'v1.0.0');
 
+        let yOffset = 0;
+
+        // Demo mode banner
+        if (config.isInDemoMode()) {
+            this.renderDemoModeBanner(3, contentY + 1, width - 6);
+            yOffset = 3;
+        }
+
         // Status section
-        this.renderStatusSection(3, contentY + 1, width - 6);
+        this.renderStatusSection(3, contentY + 1 + yOffset, width - 6);
 
         // Menu section
-        this.renderMenuSection(3, contentY + 7, width - 6);
+        this.renderMenuSection(3, contentY + 7 + yOffset, width - 6);
 
         // Recent activity section
-        this.renderActivitySection(3, contentY + 17, width - 6, height - contentY - 20);
+        this.renderActivitySection(3, contentY + 18 + yOffset, width - 6, height - contentY - 21 - yOffset);
 
         // Key hints
-        components.drawKeyHints([
+        const hints = [
             { key: '1-9', action: 'Select' },
             { key: 'R', action: 'Refresh' },
             { key: 'Q', action: 'Quit' }
-        ]);
+        ];
+        
+        if (config.isInDemoMode()) {
+            hints.unshift({ key: 'S', action: 'Run Setup' });
+        }
+        
+        components.drawKeyHints(hints);
+    }
+
+    /**
+     * Render demo mode banner
+     */
+    renderDemoModeBanner(x, y, width) {
+        const warningColor = renderer.color('warning');
+        const dimColor = renderer.color('textDim');
+        const keyColor = renderer.color('menuKey');
+
+        const bannerText = ' DEMO MODE ';
+        const message = 'Ranking features disabled';
+        
+        renderer.writeAt(x, y, `${warningColor}>>>${bannerText}<<<${renderer.constructor.ANSI.RESET} ${dimColor}${message} - Press ${keyColor}[S]${dimColor} to configure${renderer.constructor.ANSI.RESET}`);
+        
+        components.drawSeparator(x, y + 1, width);
     }
 
     /**
@@ -175,16 +205,21 @@ class DashboardScreen {
     setupInput() {
         input.clearListeners();
 
-        // Menu options
-        input.on('1', () => this.app.showScreen('rank'));
-        input.on('2', () => this.app.showScreen('promote'));
-        input.on('3', () => this.app.showScreen('demote'));
-        input.on('4', () => this.app.showScreen('search'));
-        input.on('5', () => this.app.showScreen('favorites'));
-        input.on('6', () => this.app.showScreen('roles'));
-        input.on('7', () => this.app.showScreen('logs'));
+        // Menu options - wrap API-dependent screens with demo mode check
+        input.on('1', () => this.navigateWithDemoCheck('rank'));
+        input.on('2', () => this.navigateWithDemoCheck('promote'));
+        input.on('3', () => this.navigateWithDemoCheck('demote'));
+        input.on('4', () => this.navigateWithDemoCheck('search'));
+        input.on('5', () => this.app.showScreen('favorites')); // Favorites works in demo mode
+        input.on('6', () => this.navigateWithDemoCheck('roles'));
+        input.on('7', () => this.app.showScreen('logs')); // Logs works in demo mode
         input.on('8', () => this.app.showScreen('settings'));
         input.on('9', () => this.app.showScreen('help'));
+
+        // Setup shortcut for demo mode
+        if (config.isInDemoMode()) {
+            input.on('s', () => this.startSetup());
+        }
 
         // Refresh
         input.on('r', () => this.refresh());
@@ -192,6 +227,52 @@ class DashboardScreen {
         // Quit
         input.on('q', () => this.confirmQuit());
         input.on('escape', () => this.confirmQuit());
+    }
+
+    /**
+     * Navigate to screen with demo mode check
+     */
+    async navigateWithDemoCheck(screen) {
+        if (config.isInDemoMode()) {
+            await this.showDemoModePrompt(screen);
+        } else {
+            this.app.showScreen(screen);
+        }
+    }
+
+    /**
+     * Show demo mode prompt when trying to access restricted features
+     */
+    async showDemoModePrompt(targetScreen) {
+        const screenNames = {
+            'rank': 'Rank User',
+            'promote': 'Promote User',
+            'demote': 'Demote User',
+            'search': 'Search Members',
+            'roles': 'View Roles'
+        };
+
+        components.drawConfirmDialog(
+            `"${screenNames[targetScreen]}" requires setup.`,
+            'Would you like to configure your API connection now?'
+        );
+        
+        const confirmed = await input.confirm(true);
+        
+        if (confirmed) {
+            this.startSetup();
+        } else {
+            await this.render();
+            this.setupInput();
+        }
+    }
+
+    /**
+     * Start setup process (exit demo mode)
+     */
+    startSetup() {
+        config.exitDemoMode();
+        this.app.showScreen('setup');
     }
 
     /**
