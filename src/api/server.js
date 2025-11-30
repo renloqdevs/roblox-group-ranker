@@ -7,18 +7,7 @@ const express = require('express');
 const config = require('../config');
 const routes = require('./routes');
 const middleware = require('./middleware');
-
-// ANSI color codes for console output
-const colors = {
-    red: '\x1b[31m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    blue: '\x1b[34m',
-    cyan: '\x1b[36m',
-    magenta: '\x1b[35m',
-    reset: '\x1b[0m',
-    bold: '\x1b[1m'
-};
+const { colors } = require('../utils/colors');
 
 /**
  * Create and configure the Express application
@@ -30,11 +19,14 @@ function createApp() {
     // Trust proxy (required for Railway and other platforms)
     app.set('trust proxy', 1);
 
-    // Parse JSON bodies
-    app.use(express.json());
+    // Security headers
+    app.use(middleware.securityHeaders);
 
-    // Parse URL-encoded bodies
-    app.use(express.urlencoded({ extended: true }));
+    // Parse JSON bodies with size limit
+    app.use(express.json({ limit: '1mb' }));
+
+    // Parse URL-encoded bodies with size limit
+    app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
     // Apply rate limiting to all requests
     app.use(middleware.rateLimiter);

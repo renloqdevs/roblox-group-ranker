@@ -482,7 +482,7 @@ router.post('/api/demote/username',
 
 /**
  * POST /api/rank/bulk
- * Rank multiple users at once
+ * Rank multiple users at once with parallel processing
  * Body: { users: [{ userId: number, rank: number }] } OR { users: [{ username: string, rankName: string }] }
  */
 router.post('/api/rank/bulk',
@@ -506,9 +506,8 @@ router.post('/api/rank/bulk',
                 });
             }
 
-            const results = [];
-
-            for (const user of users) {
+            // Process users in parallel for better performance
+            const operations = users.map(async (user) => {
                 try {
                     let userId = user.userId;
                     let username = user.username;
@@ -519,13 +518,12 @@ router.post('/api/rank/bulk',
                     }
 
                     if (!userId) {
-                        results.push({
+                        return {
                             userId: user.userId,
                             username: user.username,
                             success: false,
                             error: 'Invalid user identifier'
-                        });
-                        continue;
+                        };
                     }
 
                     let result;
@@ -534,17 +532,15 @@ router.post('/api/rank/bulk',
                     } else if (user.rank !== undefined) {
                         result = await ranking.setRank(userId, user.rank);
                     } else {
-                        results.push({
+                        return {
                             userId,
                             username,
                             success: false,
                             error: 'No rank specified'
-                        });
-                        continue;
+                        };
                     }
 
                     result.username = username;
-                    results.push(result);
 
                     auditLog.add({
                         action: 'setRank',
@@ -556,15 +552,20 @@ router.post('/api/rank/bulk',
                         ip: req.ip
                     });
 
+                    return result;
+
                 } catch (error) {
-                    results.push({
+                    return {
                         userId: user.userId,
                         username: user.username,
                         success: false,
                         error: error.message
-                    });
+                    };
                 }
-            }
+            });
+
+            // Wait for all operations to complete
+            const results = await Promise.all(operations);
 
             const successful = results.filter(r => r.success).length;
             const failed = results.filter(r => !r.success).length;

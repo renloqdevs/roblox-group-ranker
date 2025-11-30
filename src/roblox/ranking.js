@@ -6,17 +6,35 @@
 const noblox = require('noblox.js');
 const config = require('../config');
 const client = require('./client');
+const { colors } = require('../utils/colors');
 
-// ANSI color codes for console output
-const colors = {
-    red: '\x1b[31m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    blue: '\x1b[34m',
-    cyan: '\x1b[36m',
-    reset: '\x1b[0m',
-    bold: '\x1b[1m'
-};
+// Simple in-memory cache for user lookups
+const userCache = new Map();
+const CACHE_TTL = 60000; // 1 minute
+
+/**
+ * Get cached user data or null if expired/missing
+ */
+function getCachedUser(key) {
+    const cached = userCache.get(key);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        return cached.data;
+    }
+    userCache.delete(key);
+    return null;
+}
+
+/**
+ * Cache user data with timestamp
+ */
+function cacheUser(key, data) {
+    // Limit cache size to prevent memory issues
+    if (userCache.size > 500) {
+        const firstKey = userCache.keys().next().value;
+        userCache.delete(firstKey);
+    }
+    userCache.set(key, { data, timestamp: Date.now() });
+}
 
 /**
  * Get a user's ID from their username
@@ -54,20 +72,33 @@ async function getUsernameFromId(userId) {
 
 /**
  * Get a user's current rank in the group
+ * Uses caching to reduce redundant API calls
  * @param {number} userId - Roblox user ID
  * @returns {Promise<Object>} Rank information
  */
 async function getUserRank(userId) {
-    try {
-        const rank = await noblox.getRankInGroup(config.roblox.groupId, userId);
-        const rankName = await noblox.getRankNameInGroup(config.roblox.groupId, userId);
+    const cacheKey = `rank_${userId}`;
+    const cached = getCachedUser(cacheKey);
+    if (cached) return cached;
 
-        return {
+    try {
+        // Get rank number - this is the primary call
+        const rank = await noblox.getRankInGroup(config.roblox.groupId, userId);
+        
+        // Get rank name from our cached roles instead of another API call
+        const groupRoles = client.getGroupRoles();
+        const roleInfo = groupRoles.find(r => r.rank === rank);
+        const rankName = roleInfo?.name || 'Unknown';
+
+        const result = {
             userId: userId,
             rank: rank,
             rankName: rankName,
             inGroup: rank > 0
         };
+
+        cacheUser(cacheKey, result);
+        return result;
     } catch (error) {
         throw new Error(`Failed to get rank for user ${userId}: ${error.message}`);
     }

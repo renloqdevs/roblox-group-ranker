@@ -3,18 +3,10 @@
  * Protects API endpoints from unauthorized access and abuse
  */
 
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const config = require('../config');
-
-// ANSI color codes for console output
-const colors = {
-    red: '\x1b[31m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    blue: '\x1b[34m',
-    reset: '\x1b[0m',
-    bold: '\x1b[1m'
-};
+const { colors } = require('../utils/colors');
 
 /**
  * API Key authentication middleware
@@ -33,7 +25,21 @@ function authenticate(req, res, next) {
         });
     }
 
-    if (apiKey !== config.api.key) {
+    // Use timing-safe comparison to prevent timing attacks
+    try {
+        const apiKeyBuffer = Buffer.from(apiKey);
+        const configKeyBuffer = Buffer.from(config.api.key);
+        
+        if (apiKeyBuffer.length !== configKeyBuffer.length || 
+            !crypto.timingSafeEqual(apiKeyBuffer, configKeyBuffer)) {
+            console.log(`${colors.red}[AUTH]${colors.reset} Request rejected - Invalid API key (${req.ip})`);
+            return res.status(403).json({
+                success: false,
+                error: 'Invalid API key',
+                message: 'The provided API key is incorrect'
+            });
+        }
+    } catch (err) {
         console.log(`${colors.red}[AUTH]${colors.reset} Request rejected - Invalid API key (${req.ip})`);
         return res.status(403).json({
             success: false,
@@ -77,19 +83,48 @@ function requestLogger(req, res, next) {
 
 /**
  * Error handling middleware
- * Catches and formats errors
+ * Catches and formats errors with categorization
  */
 function errorHandler(err, req, res, next) {
     console.error(`${colors.red}[ERROR]${colors.reset} ${err.message}`);
 
-    // Don't leak stack traces in production
+    // Categorize errors for appropriate status codes
+    let statusCode = 500;
+    let errorType = 'Internal server error';
+    
+    if (err.name === 'ValidationError') {
+        statusCode = 400;
+        errorType = 'Validation error';
+    } else if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+        statusCode = 503;
+        errorType = 'Service unavailable';
+    } else if (err.message?.includes('rate limit')) {
+        statusCode = 429;
+        errorType = 'Rate limited';
+    } else if (err.message?.includes('not found')) {
+        statusCode = 404;
+        errorType = 'Not found';
+    }
+
     const response = {
         success: false,
-        error: 'Internal server error',
+        error: errorType,
         message: err.message
     };
 
-    res.status(500).json(response);
+    res.status(statusCode).json(response);
+}
+
+/**
+ * Security headers middleware
+ * Adds security-related HTTP headers
+ */
+function securityHeaders(req, res, next) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.removeHeader('X-Powered-By');
+    next();
 }
 
 /**
@@ -153,5 +188,6 @@ module.exports = {
     requestLogger,
     errorHandler,
     validateUserId,
-    validateRank
+    validateRank,
+    securityHeaders
 };

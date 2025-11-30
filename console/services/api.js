@@ -1,5 +1,6 @@
 /**
  * API Service - HTTP client for the ranking bot API
+ * Includes retry logic with exponential backoff
  */
 
 const config = require('./config');
@@ -12,6 +13,7 @@ class ApiService {
         this.connected = false;
         this.lastError = null;
         this.botInfo = null;
+        this.maxRetries = 3;
     }
 
     /**
@@ -32,9 +34,9 @@ class ApiService {
     }
 
     /**
-     * Make HTTP request
+     * Make HTTP request with retry logic
      */
-    async request(endpoint, method = 'GET', body = null) {
+    async request(endpoint, method = 'GET', body = null, retryCount = 0) {
         if (!this.baseUrl) {
             throw new Error('API URL not configured');
         }
@@ -79,6 +81,17 @@ class ApiService {
             
             if (error.name === 'AbortError') {
                 throw new Error('Request timeout');
+            }
+            
+            // Retry logic with exponential backoff for server errors
+            const isRetryable = error.message?.includes('5') || 
+                               error.message?.includes('timeout') ||
+                               error.code === 'ECONNREFUSED';
+            
+            if (isRetryable && retryCount < this.maxRetries) {
+                const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
+                await new Promise(r => setTimeout(r, delay));
+                return this.request(endpoint, method, body, retryCount + 1);
             }
             
             throw error;

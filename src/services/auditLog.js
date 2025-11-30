@@ -1,11 +1,51 @@
 /**
  * Audit Log Service - Tracks all ranking operations
+ * Includes memory-efficient log management
  */
 
 class AuditLog {
     constructor() {
         this.logs = [];
         this.maxEntries = 100;
+        this.cleanupInterval = null;
+        
+        // Start periodic cleanup
+        this.startCleanup();
+    }
+
+    /**
+     * Start periodic cleanup of old entries
+     */
+    startCleanup() {
+        // Clean up entries older than 1 hour every 10 minutes
+        this.cleanupInterval = setInterval(() => {
+            this.cleanup();
+        }, 600000); // 10 minutes
+    }
+
+    /**
+     * Stop cleanup interval
+     */
+    stopCleanup() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+        }
+    }
+
+    /**
+     * Remove entries older than 1 hour
+     */
+    cleanup() {
+        const oneHourAgo = Date.now() - 3600000;
+        const beforeCount = this.logs.length;
+        this.logs = this.logs.filter(log => 
+            new Date(log.timestamp).getTime() > oneHourAgo
+        );
+        const removed = beforeCount - this.logs.length;
+        if (removed > 0) {
+            console.log(`\x1b[34m[AUDIT]\x1b[0m Cleaned up ${removed} old log entries`);
+        }
     }
 
     /**
@@ -14,7 +54,7 @@ class AuditLog {
      */
     add(entry) {
         const logEntry = {
-            id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+            id: Date.now().toString(36) + Math.random().toString(36).substring(2, 7),
             timestamp: new Date().toISOString(),
             action: entry.action,
             userId: entry.userId,
@@ -29,9 +69,9 @@ class AuditLog {
 
         this.logs.unshift(logEntry);
 
-        // Trim to max entries
+        // Efficient in-place trimming
         if (this.logs.length > this.maxEntries) {
-            this.logs = this.logs.slice(0, this.maxEntries);
+            this.logs.length = this.maxEntries;
         }
 
         return logEntry;

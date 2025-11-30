@@ -13,6 +13,10 @@ class ConfigService {
         this.configFile = path.join(this.configDir, 'config.json');
         this.config = this.getDefaultConfig();
         this.loaded = false;
+        
+        // Debounce saves to prevent excessive I/O
+        this.saveTimeout = null;
+        this.pendingSave = false;
     }
 
     /**
@@ -97,17 +101,53 @@ class ConfigService {
     }
 
     /**
-     * Save configuration to file
+     * Save configuration to file (debounced)
      */
     save() {
+        // Debounce saves to prevent excessive I/O
+        if (this.saveTimeout) {
+            this.pendingSave = true;
+            return true;
+        }
+        
+        this.saveTimeout = setTimeout(() => {
+            this._doSave();
+            this.saveTimeout = null;
+            if (this.pendingSave) {
+                this.pendingSave = false;
+                this.save();
+            }
+        }, 500);
+        
+        return true;
+    }
+
+    /**
+     * Perform the actual save operation
+     */
+    _doSave() {
         try {
             this.ensureConfigDir();
-            fs.writeFileSync(this.configFile, JSON.stringify(this.config, null, 2));
+            fs.writeFileSync(this.configFile, JSON.stringify(this.config, null, 2), {
+                mode: 0o600  // Read/write for owner only (security)
+            });
             return true;
         } catch (error) {
             console.error('Failed to save config:', error.message);
             return false;
         }
+    }
+
+    /**
+     * Force immediate save (for critical operations)
+     */
+    saveImmediate() {
+        if (this.saveTimeout) {
+            clearTimeout(this.saveTimeout);
+            this.saveTimeout = null;
+        }
+        this.pendingSave = false;
+        return this._doSave();
     }
 
     /**
@@ -309,21 +349,20 @@ class ConfigService {
     }
 
     /**
-     * Update stats
+     * Update stats (simplified with lookup table)
      */
     updateStats(action) {
         this.config.stats.lastActivity = new Date().toISOString();
         
-        switch (action) {
-            case 'rank':
-                this.config.stats.totalRankChanges++;
-                break;
-            case 'promote':
-                this.config.stats.totalPromotions++;
-                break;
-            case 'demote':
-                this.config.stats.totalDemotions++;
-                break;
+        const statMap = {
+            'rank': 'totalRankChanges',
+            'promote': 'totalPromotions',
+            'demote': 'totalDemotions'
+        };
+        
+        const statKey = statMap[action];
+        if (statKey) {
+            this.config.stats[statKey]++;
         }
         
         this.save();

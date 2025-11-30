@@ -14,6 +14,13 @@ class WebhookService {
         this.processing = false;
         this.retryDelay = 5000; // 5 seconds
         this.maxRetries = 3;
+        this.maxQueueSize = 100;
+        
+        // Circuit breaker properties
+        this.failureCount = 0;
+        this.failureThreshold = 5;
+        this.circuitOpen = false;
+        this.circuitResetTime = 60000; // 1 minute
     }
 
     /**
@@ -39,6 +46,18 @@ class WebhookService {
      */
     async send(payload) {
         if (!this.isEnabled()) return;
+        
+        // Circuit breaker check
+        if (this.circuitOpen) {
+            console.log('\x1b[33m[WEBHOOK]\x1b[0m Circuit breaker open - skipping webhook');
+            return;
+        }
+
+        // Prevent queue from growing unbounded
+        if (this.queue.length >= this.maxQueueSize) {
+            console.warn('\x1b[33m[WEBHOOK]\x1b[0m Queue full, dropping oldest item');
+            this.queue.shift();
+        }
 
         this.queue.push({
             payload,
@@ -50,25 +69,39 @@ class WebhookService {
     }
 
     /**
-     * Process the webhook queue
+     * Process the webhook queue with circuit breaker support
      */
     async processQueue() {
-        if (this.processing || this.queue.length === 0) return;
+        if (this.processing || this.queue.length === 0 || this.circuitOpen) return;
 
         this.processing = true;
 
-        while (this.queue.length > 0) {
+        while (this.queue.length > 0 && !this.circuitOpen) {
             const item = this.queue.shift();
             
             try {
                 await this.sendRequest(item.payload);
+                this.failureCount = 0; // Reset on success
             } catch (error) {
                 console.error('\x1b[31m[WEBHOOK ERROR]\x1b[0m', error.message);
+                this.failureCount++;
+                
+                // Check if we should open the circuit
+                if (this.failureCount >= this.failureThreshold) {
+                    this.circuitOpen = true;
+                    console.warn('\x1b[33m[WEBHOOK]\x1b[0m Circuit breaker opened due to repeated failures');
+                    setTimeout(() => {
+                        this.circuitOpen = false;
+                        this.failureCount = 0;
+                        console.log('\x1b[32m[WEBHOOK]\x1b[0m Circuit breaker reset');
+                    }, this.circuitResetTime);
+                    break;
+                }
                 
                 if (item.retries < this.maxRetries) {
                     item.retries++;
                     this.queue.push(item);
-                    await this.sleep(this.retryDelay);
+                    await this.sleep(this.retryDelay * item.retries); // Exponential backoff
                 }
             }
         }
