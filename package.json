@@ -1,0 +1,28 @@
+{
+  "name": "roblox-ranking-bot",
+  "version": "1.0.0",
+  "description": "A self-hosted Roblox group ranking bot with API endpoints for in-game and external integrations",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "roblox",
+    "ranking",
+    "bot",
+    "group",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "noblox.js": "^4.15.0",
+    "dotenv": "^16.3.1",
+    "express-rate-limit": "^7.1.5"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

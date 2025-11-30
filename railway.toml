@@ -1,0 +1,18 @@
+# Railway deployment configuration
+# This file tells Railway how to build and run your application
+
+[build]
+# Use Node.js builder
+builder = "nixpacks"
+
+[deploy]
+# Start command
+startCommand = "npm start"
+
+# Health check endpoint
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+# Restart policy
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
