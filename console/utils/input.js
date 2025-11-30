@@ -392,6 +392,11 @@ class InputHandler {
      * Wait for specific key
      */
     async waitForKey(keys = []) {
+        // Stop any active text input to switch to navigation mode
+        if (this.inputMode === 'text') {
+            this.stopTextInput();
+        }
+        
         return new Promise((resolve) => {
             const handler = (str, key) => {
                 if (keys.length === 0 || keys.includes(key.name) || keys.includes(str)) {
@@ -414,6 +419,12 @@ class InputHandler {
      * Confirm dialog (Y/N)
      */
     async confirm(defaultValue = false) {
+        // Stop any active text input to switch to navigation mode
+        const wasTextMode = this.inputMode === 'text';
+        if (wasTextMode) {
+            this.stopTextInput();
+        }
+        
         return new Promise((resolve) => {
             const handler = (str, key) => {
                 const char = (str || '').toLowerCase();
