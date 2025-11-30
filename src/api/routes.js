@@ -1,12 +1,16 @@
 /**
  * API Routes - All ranking endpoints
  * Provides REST API for ranking operations
+ * 
+ * API Version: v1
+ * All endpoints support both /api/* and /v1/api/* paths
  */
 
 const express = require('express');
 const router = express.Router();
 const ranking = require('../roblox/ranking');
 const client = require('../roblox/client');
+const config = require('../config');
 const middleware = require('./middleware');
 const auditLog = require('../services/auditLog');
 const webhook = require('../services/webhook');
@@ -14,8 +18,38 @@ const webhook = require('../services/webhook');
 // Initialize webhook service
 webhook.initialize();
 
-// Apply authentication to all routes except health check
+// Track request metrics
+const metrics = {
+    totalRequests: 0,
+    requestsByEndpoint: {},
+    requestsByMethod: {},
+    errors: 0,
+    startTime: Date.now()
+};
+
+// Metrics tracking middleware
+function trackMetrics(req, res, next) {
+    metrics.totalRequests++;
+    metrics.requestsByMethod[req.method] = (metrics.requestsByMethod[req.method] || 0) + 1;
+    
+    const endpoint = req.route ? req.route.path : req.path;
+    metrics.requestsByEndpoint[endpoint] = (metrics.requestsByEndpoint[endpoint] || 0) + 1;
+    
+    // Track errors
+    res.on('finish', () => {
+        if (res.statusCode >= 400) {
+            metrics.errors++;
+        }
+    });
+    
+    next();
+}
+
+router.use(trackMetrics);
+
+// Apply authentication to all /api routes except health check
 router.use('/api', middleware.authenticate);
+router.use('/v1/api', middleware.authenticate);
 
 // ============================================
 // HEALTH CHECK (No auth required)
@@ -119,7 +153,7 @@ function formatUptime(ms) {
  * Set a user to a specific rank
  * Body: { userId: number, rank: number } OR { userId: number, rankName: string }
  */
-router.post('/api/rank',
+router.post(['/api/rank', '/v1/api/rank'],
     middleware.validateUserId,
     middleware.validateRank,
     middleware.deduplicateRequest,
@@ -180,7 +214,9 @@ router.post('/api/rank',
             res.status(400).json({
                 success: false,
                 error: 'Rank change failed',
-                message: error.message
+                errorCode: 'E_RANK_CHANGE',
+                message: error.message,
+                requestId: req.id
             });
         }
     }
@@ -191,7 +227,7 @@ router.post('/api/rank',
  * Promote a user by one rank
  * Body: { userId: number }
  */
-router.post('/api/promote',
+router.post(['/api/promote', '/v1/api/promote'],
     middleware.validateUserId,
     middleware.deduplicateRequest,
     middleware.checkRankCooldown,
@@ -228,7 +264,9 @@ router.post('/api/promote',
             res.status(400).json({
                 success: false,
                 error: 'Promotion failed',
-                message: error.message
+                errorCode: 'E_PROMOTE',
+                message: error.message,
+                requestId: req.id
             });
         }
     }
@@ -239,7 +277,7 @@ router.post('/api/promote',
  * Demote a user by one rank
  * Body: { userId: number }
  */
-router.post('/api/demote',
+router.post(['/api/demote', '/v1/api/demote'],
     middleware.validateUserId,
     middleware.deduplicateRequest,
     middleware.checkRankCooldown,
@@ -276,7 +314,9 @@ router.post('/api/demote',
             res.status(400).json({
                 success: false,
                 error: 'Demotion failed',
-                message: error.message
+                errorCode: 'E_DEMOTE',
+                message: error.message,
+                requestId: req.id
             });
         }
     }
@@ -288,7 +328,7 @@ router.post('/api/demote',
  * Params: userId (number)
  * Headers: x-api-key
  */
-router.get('/api/rank/:userId',
+router.get(['/api/rank/:userId', '/v1/api/rank/:userId'],
     middleware.validateUserId,
     async (req, res, next) => {
         try {
@@ -316,6 +356,7 @@ router.get('/api/rank/:userId',
             res.status(400).json({
                 success: false,
                 error: 'Failed to get rank',
+                errorCode: 'E_GET_RANK',
                 message: error.message
             });
         }
@@ -328,7 +369,7 @@ router.get('/api/rank/:userId',
  * Params: username (string)
  * Headers: x-api-key
  */
-router.get('/api/user/:username',
+router.get(['/api/user/:username', '/v1/api/user/:username'],
     middleware.validateUsername,
     async (req, res, next) => {
         try {
@@ -353,6 +394,7 @@ router.get('/api/user/:username',
             res.status(400).json({
                 success: false,
                 error: 'User lookup failed',
+                errorCode: 'E_USER_LOOKUP',
                 message: error.message
             });
         }
@@ -364,7 +406,7 @@ router.get('/api/user/:username',
  * Get all roles in the group
  * Headers: x-api-key
  */
-router.get('/api/roles', (req, res) => {
+router.get(['/api/roles', '/v1/api/roles'], (req, res) => {
     try {
         const roles = ranking.getAllRoles();
 
@@ -378,6 +420,276 @@ router.get('/api/roles', (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to get roles',
+            errorCode: 'E_ROLES_FETCH',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/group
+ * Get group information including member count
+ * Headers: x-api-key
+ */
+router.get(['/api/group', '/v1/api/group'], async (req, res) => {
+    try {
+        const noblox = client.getNoblox();
+        const groupInfo = await noblox.getGroup(config.roblox.groupId);
+        const roles = ranking.getAllRoles();
+        const botUser = client.getBotUser();
+        const botRank = client.getBotRank();
+
+        res.json({
+            success: true,
+            group: {
+                id: groupInfo.id,
+                name: groupInfo.name,
+                description: groupInfo.description,
+                memberCount: groupInfo.memberCount,
+                owner: {
+                    userId: groupInfo.owner?.userId,
+                    username: groupInfo.owner?.username
+                },
+                shout: groupInfo.shout ? {
+                    body: groupInfo.shout.body,
+                    poster: groupInfo.shout.poster?.username,
+                    created: groupInfo.shout.created
+                } : null
+            },
+            roles: {
+                total: roles.length,
+                assignable: roles.filter(r => r.canAssign).length
+            },
+            bot: {
+                username: botUser?.UserName,
+                rank: botRank
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get group info',
+            errorCode: 'E_GROUP_FETCH',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/roles/:roleId/members
+ * Get members of a specific role (paginated)
+ * Query: limit (default 100, max 100), cursor (for pagination)
+ * Headers: x-api-key
+ */
+router.get(['/api/roles/:roleId/members', '/v1/api/roles/:roleId/members'], async (req, res) => {
+    try {
+        const roleId = parseInt(req.params.roleId);
+        if (isNaN(roleId) || roleId <= 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid roleId',
+                errorCode: 'E_INVALID_ROLE_ID',
+                message: 'roleId must be a positive integer'
+            });
+        }
+
+        const noblox = client.getNoblox();
+        const limit = Math.min(parseInt(req.query.limit) || 100, 100);
+        const cursor = req.query.cursor || '';
+
+        const result = await noblox.getPlayers(config.roblox.groupId, roleId, limit, cursor);
+
+        res.json({
+            success: true,
+            roleId: roleId,
+            members: result.data || result,
+            nextCursor: result.nextPageCursor || null,
+            count: (result.data || result).length
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: 'Failed to get role members',
+            errorCode: 'E_ROLE_MEMBERS_FETCH',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/users/batch
+ * Get multiple users' ranks in a single request
+ * Query: ids=123,456,789 (comma-separated user IDs, max 25)
+ * Headers: x-api-key
+ */
+router.get(['/api/users/batch', '/v1/api/users/batch'], async (req, res) => {
+    try {
+        const idsParam = req.query.ids;
+        if (!idsParam) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing ids parameter',
+                errorCode: 'E_MISSING_IDS',
+                message: 'Please provide comma-separated user IDs in the "ids" query parameter'
+            });
+        }
+
+        const ids = idsParam.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id) && id > 0);
+        
+        if (ids.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No valid IDs provided',
+                errorCode: 'E_INVALID_IDS',
+                message: 'Please provide valid numeric user IDs'
+            });
+        }
+
+        if (ids.length > 25) {
+            return res.status(400).json({
+                success: false,
+                error: 'Too many IDs',
+                errorCode: 'E_TOO_MANY_IDS',
+                message: 'Maximum 25 user IDs per batch request'
+            });
+        }
+
+        // Fetch all users in parallel
+        const results = await Promise.all(ids.map(async (userId) => {
+            try {
+                const rankInfo = await ranking.getUserRank(userId);
+                let username = null;
+                try {
+                    username = await ranking.getUsernameFromId(userId);
+                } catch (e) {
+                    // Username lookup failed, continue without it
+                }
+                return {
+                    userId,
+                    username,
+                    rank: rankInfo.rank,
+                    rankName: rankInfo.rankName,
+                    inGroup: rankInfo.inGroup,
+                    success: true
+                };
+            } catch (error) {
+                return {
+                    userId,
+                    success: false,
+                    error: error.message
+                };
+            }
+        }));
+
+        const successful = results.filter(r => r.success).length;
+        const failed = results.filter(r => !r.success).length;
+
+        res.json({
+            success: true,
+            message: `Fetched ${successful} users successfully, ${failed} failed`,
+            users: results,
+            count: results.length
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Batch lookup failed',
+            errorCode: 'E_BATCH_LOOKUP',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/metrics
+ * Get API metrics and statistics
+ * Headers: x-api-key
+ */
+router.get(['/api/metrics', '/v1/api/metrics'], (req, res) => {
+    const uptime = Date.now() - metrics.startTime;
+    const logStats = auditLog.getStats();
+    const memUsage = process.memoryUsage();
+    const securityStats = middleware.getSecurityStats();
+
+    res.json({
+        success: true,
+        metrics: {
+            uptime: {
+                ms: uptime,
+                seconds: Math.floor(uptime / 1000),
+                formatted: formatUptime(uptime)
+            },
+            requests: {
+                total: metrics.totalRequests,
+                byMethod: metrics.requestsByMethod,
+                byEndpoint: metrics.requestsByEndpoint,
+                errors: metrics.errors,
+                errorRate: metrics.totalRequests > 0 
+                    ? ((metrics.errors / metrics.totalRequests) * 100).toFixed(2) + '%' 
+                    : '0%'
+            },
+            operations: logStats,
+            security: {
+                lockedIPs: securityStats.lockedIPs.length,
+                activeCooldowns: securityStats.activeCooldowns,
+                pendingDedupe: securityStats.pendingDedupe
+            },
+            system: {
+                nodeVersion: process.version,
+                platform: process.platform,
+                memory: {
+                    heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+                    heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+                    rss: Math.round(memUsage.rss / 1024 / 1024),
+                    unit: 'MB'
+                }
+            }
+        }
+    });
+});
+
+/**
+ * GET /api/bot/permissions
+ * Get bot's ranking permissions and capabilities
+ * Headers: x-api-key
+ */
+router.get(['/api/bot/permissions', '/v1/api/bot/permissions'], (req, res) => {
+    try {
+        const botUser = client.getBotUser();
+        const botRank = client.getBotRank();
+        const roles = ranking.getAllRoles();
+
+        const canAssign = roles.filter(r => r.canAssign);
+        const cannotAssign = roles.filter(r => !r.canAssign);
+
+        res.json({
+            success: true,
+            bot: {
+                username: botUser?.UserName,
+                userId: botUser?.UserID,
+                rank: botRank,
+                rankName: roles.find(r => r.rank === botRank)?.name || 'Unknown'
+            },
+            permissions: {
+                canRankUsers: canAssign.length > 0,
+                assignableRoles: canAssign.map(r => ({ rank: r.rank, name: r.name })),
+                unassignableRoles: cannotAssign.map(r => ({ rank: r.rank, name: r.name, reason: r.rank >= botRank ? 'At or above bot rank' : 'Guest rank' }))
+            },
+            limits: {
+                minRank: config.ranks.min,
+                maxRank: config.ranks.max,
+                botRank: botRank
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get permissions',
+            errorCode: 'E_PERMISSIONS_FETCH',
             message: error.message
         });
     }
@@ -388,7 +700,7 @@ router.get('/api/roles', (req, res) => {
  * Set a user's rank by their username (convenience endpoint)
  * Body: { username: string, rank: number } OR { username: string, rankName: string }
  */
-router.post('/api/rank/username',
+router.post(['/api/rank/username', '/v1/api/rank/username'],
     middleware.validateUsername,
     middleware.validateRank,
     async (req, res, next) => {
@@ -439,6 +751,7 @@ router.post('/api/rank/username',
             res.status(400).json({
                 success: false,
                 error: 'Rank change failed',
+                errorCode: 'E_RANK_CHANGE_USERNAME',
                 message: error.message
             });
         }
@@ -450,7 +763,7 @@ router.post('/api/rank/username',
  * Promote a user by their username
  * Body: { username: string }
  */
-router.post('/api/promote/username',
+router.post(['/api/promote/username', '/v1/api/promote/username'],
     middleware.validateUsername,
     async (req, res, next) => {
         try {
@@ -483,6 +796,7 @@ router.post('/api/promote/username',
             res.status(400).json({
                 success: false,
                 error: 'Promotion failed',
+                errorCode: 'E_PROMOTE_USERNAME',
                 message: error.message
             });
         }
@@ -494,7 +808,7 @@ router.post('/api/promote/username',
  * Demote a user by their username
  * Body: { username: string }
  */
-router.post('/api/demote/username',
+router.post(['/api/demote/username', '/v1/api/demote/username'],
     middleware.validateUsername,
     async (req, res, next) => {
         try {
@@ -527,6 +841,7 @@ router.post('/api/demote/username',
             res.status(400).json({
                 success: false,
                 error: 'Demotion failed',
+                errorCode: 'E_DEMOTE_USERNAME',
                 message: error.message
             });
         }
@@ -592,7 +907,7 @@ function validateBulkUserEntry(user) {
  * Rank multiple users at once with parallel processing
  * Body: { users: [{ userId: number, rank: number }] } OR { users: [{ username: string, rankName: string }] }
  */
-router.post('/api/rank/bulk',
+router.post(['/api/rank/bulk', '/v1/api/rank/bulk'],
     async (req, res, next) => {
         try {
             const { users } = req.body;
@@ -705,6 +1020,7 @@ router.post('/api/rank/bulk',
             res.status(400).json({
                 success: false,
                 error: 'Bulk operation failed',
+                errorCode: 'E_BULK_OPERATION',
                 message: error.message
             });
         }
@@ -720,7 +1036,7 @@ router.post('/api/rank/bulk',
  * Get audit logs
  * Query: action, limit, offset
  */
-router.get('/api/logs', (req, res) => {
+router.get(['/api/logs', '/v1/api/logs'], (req, res) => {
     try {
         const options = {
             action: req.query.action,
@@ -739,6 +1055,7 @@ router.get('/api/logs', (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to get logs',
+            errorCode: 'E_LOGS_FETCH',
             message: error.message
         });
     }
@@ -748,7 +1065,7 @@ router.get('/api/logs', (req, res) => {
  * GET /api/stats
  * Get statistics
  */
-router.get('/api/stats', (req, res) => {
+router.get(['/api/stats', '/v1/api/stats'], (req, res) => {
     try {
         const botUser = client.getBotUser();
         const botRank = client.getBotRank();
@@ -773,6 +1090,7 @@ router.get('/api/stats', (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to get stats',
+            errorCode: 'E_STATS_FETCH',
             message: error.message
         });
     }
@@ -786,22 +1104,40 @@ router.use((req, res) => {
     res.status(404).json({
         success: false,
         error: 'Not found',
+        errorCode: 'E_NOT_FOUND',
         message: `Endpoint ${req.method} ${req.path} does not exist`,
-        availableEndpoints: [
-            'GET  /health',
-            'GET  /api/rank/:userId',
-            'GET  /api/user/:username',
-            'GET  /api/roles',
-            'GET  /api/logs',
-            'GET  /api/stats',
-            'POST /api/rank',
-            'POST /api/rank/username',
-            'POST /api/rank/bulk',
-            'POST /api/promote',
-            'POST /api/promote/username',
-            'POST /api/demote',
-            'POST /api/demote/username'
-        ]
+        hint: 'All API endpoints support both /api/* and /v1/api/* paths',
+        availableEndpoints: {
+            health: [
+                'GET  /health',
+                'GET  /health/detailed'
+            ],
+            users: [
+                'GET  /api/rank/:userId',
+                'GET  /api/user/:username',
+                'GET  /api/users/batch?ids=1,2,3'
+            ],
+            ranking: [
+                'POST /api/rank',
+                'POST /api/rank/username',
+                'POST /api/rank/bulk',
+                'POST /api/promote',
+                'POST /api/promote/username',
+                'POST /api/demote',
+                'POST /api/demote/username'
+            ],
+            group: [
+                'GET  /api/group',
+                'GET  /api/roles',
+                'GET  /api/roles/:roleId/members'
+            ],
+            info: [
+                'GET  /api/bot/permissions',
+                'GET  /api/metrics',
+                'GET  /api/logs',
+                'GET  /api/stats'
+            ]
+        }
     });
 });
 

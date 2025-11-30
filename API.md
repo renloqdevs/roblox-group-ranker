@@ -2,7 +2,9 @@
 
 All endpoints except `/health` require authentication via the `x-api-key` header.
 
-Base URL: `https://your-app.up.railway.app`
+**Base URL:** `https://your-app.up.railway.app`
+
+**API Version:** v1 - All endpoints support both `/api/*` and `/v1/api/*` paths
 
 ## Authentication
 
@@ -14,7 +16,19 @@ x-api-key: your-api-key
 
 ---
 
-## Endpoints
+## Endpoints Overview
+
+| Category | Endpoints |
+|----------|-----------|
+| Health | `/health`, `/health/detailed` |
+| Users | `/api/rank/:userId`, `/api/user/:username`, `/api/users/batch` |
+| Ranking | `/api/rank`, `/api/rank/username`, `/api/rank/bulk`, `/api/promote`, `/api/demote` |
+| Group | `/api/group`, `/api/roles`, `/api/roles/:roleId/members` |
+| Info | `/api/bot/permissions`, `/api/metrics`, `/api/logs`, `/api/stats` |
+
+---
+
+## Health Endpoints
 
 ### Health Check
 
@@ -22,17 +36,37 @@ x-api-key: your-api-key
 GET /health
 ```
 
-Returns server status. No authentication required.
+Returns basic server status. No authentication required.
 
 **Response:**
 ```json
 {
   "status": "ok",
   "timestamp": "2024-01-15T12:00:00.000Z",
-  "bot": {
-    "username": "BotName",
-    "userId": 12345678
-  }
+  "uptime": 3600,
+  "version": "1.1.1",
+  "botConnected": true
+}
+```
+
+### Detailed Health Check
+
+```
+GET /health/detailed
+```
+
+Returns detailed server status including system metrics. **Requires authentication.**
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "timestamp": "2024-01-15T12:00:00.000Z",
+  "uptime": { "seconds": 3600, "formatted": "1h 0m 0s" },
+  "version": "1.1.1",
+  "bot": { "username": "BotName", "userId": 12345678, "rank": 254 },
+  "group": { "totalRoles": 8, "assignableRoles": 6 },
+  "system": { "nodeVersion": "v18.0.0", "memory": { "heapUsed": 50, "unit": "MB" } }
 }
 ```
 
@@ -103,6 +137,142 @@ GET /api/roles
     }
   ],
   "count": 5
+}
+```
+
+---
+
+### Get Group Info
+
+```
+GET /api/group
+```
+
+Returns detailed group information including member count.
+
+**Response:**
+```json
+{
+  "success": true,
+  "group": {
+    "id": 12345678,
+    "name": "My Awesome Group",
+    "description": "Group description",
+    "memberCount": 5000,
+    "owner": { "userId": 12345, "username": "OwnerName" },
+    "shout": { "body": "Welcome!", "poster": "ModeratorName" }
+  },
+  "roles": { "total": 8, "assignable": 6 },
+  "bot": { "username": "BotName", "rank": 254 }
+}
+```
+
+---
+
+### Get Role Members
+
+```
+GET /api/roles/:roleId/members
+```
+
+Get members of a specific role (paginated).
+
+**Query Parameters:**
+- `limit` - Number of members to return (default: 100, max: 100)
+- `cursor` - Pagination cursor for next page
+
+**Response:**
+```json
+{
+  "success": true,
+  "roleId": 12345,
+  "members": [
+    { "userId": 111, "username": "Player1" },
+    { "userId": 222, "username": "Player2" }
+  ],
+  "nextCursor": "abc123",
+  "count": 100
+}
+```
+
+---
+
+### Batch User Lookup
+
+```
+GET /api/users/batch?ids=123,456,789
+```
+
+Get multiple users' ranks in a single request (max 25 users).
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Fetched 3 users successfully, 0 failed",
+  "users": [
+    { "userId": 123, "username": "Player1", "rank": 10, "rankName": "Member", "inGroup": true, "success": true },
+    { "userId": 456, "username": "Player2", "rank": 5, "rankName": "Guest", "inGroup": true, "success": true },
+    { "userId": 789, "success": false, "error": "User not in group" }
+  ],
+  "count": 3
+}
+```
+
+---
+
+### Get Bot Permissions
+
+```
+GET /api/bot/permissions
+```
+
+Get bot's ranking permissions and capabilities.
+
+**Response:**
+```json
+{
+  "success": true,
+  "bot": { "username": "BotName", "userId": 12345, "rank": 254, "rankName": "Admin" },
+  "permissions": {
+    "canRankUsers": true,
+    "assignableRoles": [
+      { "rank": 10, "name": "Member" },
+      { "rank": 50, "name": "Moderator" }
+    ],
+    "unassignableRoles": [
+      { "rank": 255, "name": "Owner", "reason": "At or above bot rank" }
+    ]
+  },
+  "limits": { "minRank": 1, "maxRank": 255, "botRank": 254 }
+}
+```
+
+---
+
+### Get Metrics
+
+```
+GET /api/metrics
+```
+
+Get API metrics and performance statistics.
+
+**Response:**
+```json
+{
+  "success": true,
+  "metrics": {
+    "uptime": { "ms": 3600000, "seconds": 3600, "formatted": "1h 0m 0s" },
+    "requests": {
+      "total": 1500,
+      "byMethod": { "GET": 1000, "POST": 500 },
+      "errors": 25,
+      "errorRate": "1.67%"
+    },
+    "operations": { "total": 500, "setRank": 300, "promote": 150, "demote": 50 },
+    "system": { "nodeVersion": "v18.0.0", "memory": { "heapUsed": 50, "unit": "MB" } }
+  }
 }
 ```
 
@@ -264,19 +434,41 @@ All errors follow this format:
 {
   "success": false,
   "error": "Error type",
-  "message": "Detailed error message"
+  "errorCode": "E_ERROR_CODE",
+  "message": "Detailed error message",
+  "requestId": "abc-123"
 }
 ```
 
-Common error codes:
+### HTTP Status Codes
 
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | Invalid request | Missing or invalid parameters |
-| 401 | Authentication required | No API key provided |
-| 403 | Invalid API key | API key is incorrect |
-| 429 | Rate limit exceeded | Too many requests |
-| 500 | Internal error | Server-side error |
+| Status | Meaning | Description |
+|--------|---------|-------------|
+| 400 | Bad Request | Missing or invalid parameters |
+| 401 | Unauthorized | No API key provided |
+| 403 | Forbidden | API key is incorrect or IP blocked |
+| 404 | Not Found | Endpoint does not exist |
+| 429 | Too Many Requests | Rate limit exceeded |
+| 500 | Internal Error | Server-side error |
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| `E_RANK_CHANGE` | Failed to change rank |
+| `E_PROMOTE` | Failed to promote user |
+| `E_DEMOTE` | Failed to demote user |
+| `E_USER_LOOKUP` | Failed to find user |
+| `E_GET_RANK` | Failed to get user's rank |
+| `E_BATCH_LOOKUP` | Batch user lookup failed |
+| `E_BULK_OPERATION` | Bulk operation failed |
+| `E_ROLES_FETCH` | Failed to fetch roles |
+| `E_GROUP_FETCH` | Failed to fetch group info |
+| `E_ROLE_MEMBERS_FETCH` | Failed to fetch role members |
+| `E_PERMISSIONS_FETCH` | Failed to fetch permissions |
+| `E_INVALID_IDS` | Invalid user IDs provided |
+| `E_TOO_MANY_IDS` | Too many IDs in batch request |
+| `E_NOT_FOUND` | Endpoint not found |
 
 ---
 
