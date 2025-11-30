@@ -386,6 +386,17 @@ class RankScreen {
                 });
                 config.updateStats('rank');
 
+                // Store last action for undo functionality
+                config.setLastAction({
+                    type: 'rank',
+                    userId: this.state.user.userId,
+                    username: this.state.user.username,
+                    oldRank: result.oldRank,
+                    oldRankName: result.oldRankName,
+                    newRank: result.newRank,
+                    newRankName: result.newRankName
+                });
+
                 // Add to favorites for quick access later
                 config.addFavorite({
                     userId: this.state.user.userId,

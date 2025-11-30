@@ -67,6 +67,11 @@ class DashboardScreen {
             hints.unshift({ key: 'S', action: 'Run Setup' });
         }
         
+        // Add undo hint if available
+        if (config.canUndo()) {
+            hints.splice(hints.length - 1, 0, { key: 'Z', action: 'Undo' });
+        }
+        
         components.drawKeyHints(hints);
     }
 
@@ -224,6 +229,9 @@ class DashboardScreen {
         // Refresh
         input.on('r', () => this.refresh());
 
+        // Undo last action
+        input.on('z', () => this.confirmUndo());
+
         // Quit - only Q key, ESC does nothing on dashboard (it's the main screen)
         input.on('q', () => this.confirmQuit());
     }
@@ -309,6 +317,81 @@ class DashboardScreen {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
         }
+    }
+
+    /**
+     * Confirm and execute undo
+     */
+    async confirmUndo() {
+        const lastAction = config.getLastAction();
+        
+        if (!lastAction) {
+            // No action to undo
+            await this.render();
+            this.setupInput();
+            return;
+        }
+
+        const actionType = lastAction.type.charAt(0).toUpperCase() + lastAction.type.slice(1);
+        
+        components.drawConfirmDialog(
+            `Undo ${actionType}?`,
+            `Revert ${lastAction.username} from ${lastAction.newRankName} back to ${lastAction.oldRankName}?`
+        );
+        
+        const confirmed = await input.confirm(false);
+        
+        if (confirmed) {
+            await this.executeUndo(lastAction);
+        } else {
+            await this.render();
+            this.setupInput();
+        }
+    }
+
+    /**
+     * Execute the undo operation
+     */
+    async executeUndo(lastAction) {
+        const { width, height } = renderer.getDimensions();
+        const dimColor = renderer.color('textDim');
+        
+        // Show progress
+        renderer.clear();
+        const { contentY } = components.drawFrame('UNDO OPERATION', '');
+        renderer.writeAt(3, contentY + 2, `${dimColor}Reverting ${lastAction.username} to ${lastAction.oldRankName}...${renderer.constructor.ANSI.RESET}`);
+        
+        try {
+            const result = await api.setRank(lastAction.userId, lastAction.oldRank);
+            
+            if (result.success) {
+                const successColor = renderer.color('success');
+                renderer.writeAt(3, contentY + 4, `${successColor}Undo successful!${renderer.constructor.ANSI.RESET}`);
+                
+                // Log the undo
+                config.addLogEntry({
+                    action: 'UNDO',
+                    userId: lastAction.userId,
+                    username: lastAction.username,
+                    message: `Reverted ${lastAction.username}: ${lastAction.newRankName} -> ${lastAction.oldRankName}`
+                });
+                
+                // Clear the last action
+                config.clearLastAction();
+            } else {
+                const errorColor = renderer.color('error');
+                renderer.writeAt(3, contentY + 4, `${errorColor}Undo failed: ${result.message}${renderer.constructor.ANSI.RESET}`);
+            }
+        } catch (e) {
+            const errorColor = renderer.color('error');
+            renderer.writeAt(3, contentY + 4, `${errorColor}Undo failed: ${e.message}${renderer.constructor.ANSI.RESET}`);
+        }
+        
+        renderer.writeAt(3, contentY + 6, `${dimColor}Press any key to continue...${renderer.constructor.ANSI.RESET}`);
+        
+        await input.waitForAnyKey();
+        await this.render();
+        this.setupInput();
     }
 
     /**

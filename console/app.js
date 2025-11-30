@@ -77,8 +77,18 @@ class Application {
             // Wait for any key
             await input.waitForAnyKey();
 
-            // Always show auth screen first (handles both setup and login)
-            await this.showScreen('auth');
+            // Check if we have a valid session (skip auth if session is still valid)
+            if (config.isPasswordConfigured() && config.isSessionValid()) {
+                // Session is still valid, skip to dashboard or setup
+                if (config.isFirstRun() || !config.isConfigured()) {
+                    await this.showScreen('setup');
+                } else {
+                    await this.showScreen('dashboard');
+                }
+            } else {
+                // No valid session - show auth screen (handles both setup and login)
+                await this.showScreen('auth');
+            }
 
         } catch (error) {
             this.handleFatalError(error);

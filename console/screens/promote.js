@@ -274,6 +274,17 @@ class PromoteScreen {
                     message: `${this.state.user.username}: ${result.oldRankName} -> ${result.newRankName}`
                 });
                 config.updateStats('promote');
+
+                // Store last action for undo functionality
+                config.setLastAction({
+                    type: 'promote',
+                    userId: this.state.user.userId,
+                    username: this.state.user.username,
+                    oldRank: result.oldRank,
+                    oldRankName: result.oldRankName,
+                    newRank: result.newRank,
+                    newRankName: result.newRankName
+                });
             } else {
                 this.state.error = result.message;
             }

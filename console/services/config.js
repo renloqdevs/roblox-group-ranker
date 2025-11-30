@@ -82,8 +82,13 @@ class ConfigService {
                 passwordHash: null,      // Scrypt-derived key (never store plaintext)
                 passwordSalt: null,      // Random salt for password hashing
                 failedAttempts: 0,       // Track failed login attempts
-                lockedUntil: null        // Lockout timestamp if too many failures
-            }
+                lockedUntil: null,       // Lockout timestamp if too many failures
+                lastLoginTime: null,     // Timestamp of last successful login
+                sessionTimeout: 3600000  // Session timeout in ms (default: 1 hour)
+            },
+
+            // Last action for undo functionality
+            lastAction: null
         };
     }
 
@@ -822,6 +827,143 @@ class ConfigService {
             lockoutRemaining: this.getLockoutRemaining(),
             failedAttempts: this.config.security?.failedAttempts || 0
         };
+    }
+
+    // ============================================
+    // SESSION MANAGEMENT
+    // ============================================
+
+    /**
+     * Record successful login time
+     */
+    recordLogin() {
+        if (!this.config.security) {
+            this.config.security = {};
+        }
+        this.config.security.lastLoginTime = Date.now();
+        this.saveImmediate();
+    }
+
+    /**
+     * Check if current session is still valid
+     * @returns {boolean} True if session is valid, false if expired
+     */
+    isSessionValid() {
+        const lastLogin = this.config.security?.lastLoginTime;
+        const timeout = this.config.security?.sessionTimeout || 3600000; // Default 1 hour
+        
+        if (!lastLogin) {
+            return false;
+        }
+        
+        const elapsed = Date.now() - lastLogin;
+        return elapsed < timeout;
+    }
+
+    /**
+     * Get remaining session time in seconds
+     * @returns {number} Seconds remaining, or 0 if expired
+     */
+    getSessionRemaining() {
+        const lastLogin = this.config.security?.lastLoginTime;
+        const timeout = this.config.security?.sessionTimeout || 3600000;
+        
+        if (!lastLogin) {
+            return 0;
+        }
+        
+        const remaining = timeout - (Date.now() - lastLogin);
+        return remaining > 0 ? Math.floor(remaining / 1000) : 0;
+    }
+
+    /**
+     * Set session timeout duration
+     * @param {number} ms - Timeout in milliseconds
+     */
+    setSessionTimeout(ms) {
+        if (!this.config.security) {
+            this.config.security = {};
+        }
+        this.config.security.sessionTimeout = ms;
+        this.save();
+    }
+
+    /**
+     * Get session timeout duration in milliseconds
+     * @returns {number}
+     */
+    getSessionTimeout() {
+        return this.config.security?.sessionTimeout || 3600000;
+    }
+
+    /**
+     * Invalidate current session (force re-login)
+     */
+    invalidateSession() {
+        if (this.config.security) {
+            this.config.security.lastLoginTime = null;
+            this.saveImmediate();
+        }
+    }
+
+    // ============================================
+    // UNDO FUNCTIONALITY
+    // ============================================
+
+    /**
+     * Store the last action for potential undo
+     * @param {Object} action - Action details
+     * @param {string} action.type - 'rank', 'promote', 'demote'
+     * @param {number} action.userId - User ID
+     * @param {string} action.username - Username
+     * @param {number} action.oldRank - Previous rank number
+     * @param {string} action.oldRankName - Previous rank name
+     * @param {number} action.newRank - New rank number
+     * @param {string} action.newRankName - New rank name
+     */
+    setLastAction(action) {
+        this.config.lastAction = {
+            ...action,
+            timestamp: Date.now()
+        };
+        this.save();
+    }
+
+    /**
+     * Get the last action (if any and not expired)
+     * Actions expire after 5 minutes
+     * @returns {Object|null} Last action or null if none/expired
+     */
+    getLastAction() {
+        const action = this.config.lastAction;
+        if (!action) {
+            return null;
+        }
+        
+        // Actions expire after 5 minutes
+        const expiry = 5 * 60 * 1000;
+        if (Date.now() - action.timestamp > expiry) {
+            this.clearLastAction();
+            return null;
+        }
+        
+        return action;
+    }
+
+    /**
+     * Clear the last action (after undo or expiry)
+     */
+    clearLastAction() {
+        this.config.lastAction = null;
+        this.save();
+    }
+
+    /**
+     * Check if undo is available
+     * @returns {boolean}
+     */
+    canUndo() {
+        return this.getLastAction() !== null;
     }
 }
 

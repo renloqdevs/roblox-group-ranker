@@ -1,0 +1,50 @@
+# Dependencies
+node_modules
+
+# Git
+.git
+.gitignore
+
+# Environment files (should be passed via docker env)
+.env
+.env.*
+
+# Console UI (not needed in container)
+console/
+
+# Documentation
+*.md
+docs/
+API.md
+
+# Logs and temp files
+*.log
+logs/
+tmp/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+coverage/
+.nyc_output/
+
+# Docker files (prevent recursive copies)
+Dockerfile*
+docker-compose*
+.dockerignore

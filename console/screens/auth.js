@@ -263,6 +263,9 @@ class AuthScreen {
             // Save the password
             config.setPassword(value);
             
+            // Record login time for session management
+            config.recordLogin();
+            
             // Show success message briefly
             const { width, height } = renderer.getDimensions();
             const successColor = renderer.color('success');
@@ -276,7 +279,8 @@ class AuthScreen {
         } else {
             // Login mode - verify password
             if (config.verifyPassword(value)) {
-                // Success
+                // Success - record login time for session management
+                config.recordLogin();
                 this.proceedToApp();
             } else {
                 // Failed

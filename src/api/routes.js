@@ -77,6 +77,40 @@ router.get('/health', (req, res) => {
 });
 
 /**
+ * GET /live
+ * Kubernetes/container liveness probe - checks if server is running
+ * Returns 200 if server is alive, used to detect deadlocks/hangs
+ */
+router.get('/live', (req, res) => {
+    res.status(200).json({ status: 'alive' });
+});
+
+/**
+ * GET /ready
+ * Kubernetes/container readiness probe - checks if server can handle traffic
+ * Returns 200 only if bot is connected and ready to process requests
+ */
+router.get('/ready', (req, res) => {
+    const botUser = client.getBotUser();
+    const botRank = client.getBotRank();
+    
+    // Check if bot is connected and has sufficient rank to perform operations
+    if (botUser && botRank > 0) {
+        res.status(200).json({ 
+            status: 'ready',
+            botConnected: true,
+            botRank: botRank
+        });
+    } else {
+        res.status(503).json({ 
+            status: 'not ready',
+            botConnected: !!botUser,
+            reason: !botUser ? 'Bot not connected' : 'Bot has insufficient rank'
+        });
+    }
+});
+
+/**
  * GET /health/detailed
  * Returns detailed server status with full system info (authenticated)
  */
@@ -604,6 +638,90 @@ router.get(['/api/users/batch', '/v1/api/users/batch'], async (req, res) => {
 });
 
 /**
+ * GET /api/users/batch/usernames
+ * Get multiple users' ranks by usernames in a single request
+ * Query: usernames=player1,player2,player3 (comma-separated usernames, max 25)
+ * Headers: x-api-key
+ */
+router.get(['/api/users/batch/usernames', '/v1/api/users/batch/usernames'], async (req, res) => {
+    try {
+        const usernamesParam = req.query.usernames;
+        if (!usernamesParam) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing usernames parameter',
+                errorCode: 'E_MISSING_USERNAMES',
+                message: 'Please provide comma-separated usernames in the "usernames" query parameter'
+            });
+        }
+
+        const usernames = usernamesParam.split(',')
+            .map(u => u.trim())
+            .filter(u => u.length >= 3 && u.length <= 20 && /^[a-zA-Z0-9_]+$/.test(u));
+        
+        if (usernames.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No valid usernames provided',
+                errorCode: 'E_INVALID_USERNAMES',
+                message: 'Please provide valid Roblox usernames (3-20 alphanumeric characters or underscores)'
+            });
+        }
+
+        if (usernames.length > 25) {
+            return res.status(400).json({
+                success: false,
+                error: 'Too many usernames',
+                errorCode: 'E_TOO_MANY_USERNAMES',
+                message: 'Maximum 25 usernames per batch request'
+            });
+        }
+
+        // Fetch all users in parallel
+        const results = await Promise.all(usernames.map(async (username) => {
+            try {
+                // Get userId from username
+                const userId = await ranking.getUserIdFromUsername(username);
+                const rankInfo = await ranking.getUserRank(userId);
+                
+                return {
+                    username,
+                    userId,
+                    rank: rankInfo.rank,
+                    rankName: rankInfo.rankName,
+                    inGroup: rankInfo.inGroup,
+                    success: true
+                };
+            } catch (error) {
+                return {
+                    username,
+                    success: false,
+                    error: error.message
+                };
+            }
+        }));
+
+        const successful = results.filter(r => r.success).length;
+        const failed = results.filter(r => !r.success).length;
+
+        res.json({
+            success: true,
+            message: `Fetched ${successful} users successfully, ${failed} failed`,
+            users: results,
+            count: results.length
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Batch username lookup failed',
+            errorCode: 'E_BATCH_USERNAME_LOOKUP',
+            message: error.message
+        });
+    }
+});
+
+/**
  * GET /api/metrics
  * Get API metrics and statistics
  * Headers: x-api-key
@@ -1110,12 +1228,15 @@ router.use((req, res) => {
         availableEndpoints: {
             health: [
                 'GET  /health',
-                'GET  /health/detailed'
+                'GET  /health/detailed',
+                'GET  /live',
+                'GET  /ready'
             ],
             users: [
                 'GET  /api/rank/:userId',
                 'GET  /api/user/:username',
-                'GET  /api/users/batch?ids=1,2,3'
+                'GET  /api/users/batch?ids=1,2,3',
+                'GET  /api/users/batch/usernames?usernames=a,b,c'
             ],
             ranking: [
                 'POST /api/rank',
