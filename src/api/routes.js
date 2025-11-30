@@ -8,6 +8,11 @@ const router = express.Router();
 const ranking = require('../roblox/ranking');
 const client = require('../roblox/client');
 const middleware = require('./middleware');
+const auditLog = require('../services/auditLog');
+const webhook = require('../services/webhook');
+
+// Initialize webhook service
+webhook.initialize();
 
 // Apply authentication to all routes except health check
 router.use('/api', middleware.authenticate);
@@ -68,9 +73,33 @@ router.post('/api/rank',
                 result = await ranking.setRank(userId, rank);
             }
 
+            // Log the operation
+            auditLog.add({
+                action: 'setRank',
+                userId: userId,
+                targetRank: rankName || rank,
+                oldRank: result.oldRank,
+                newRank: result.newRank,
+                success: result.success,
+                ip: req.ip
+            });
+
+            // Send webhook notification
+            if (result.success && result.changed) {
+                webhook.notifyRankChange(result);
+            }
+
             res.json(result);
 
         } catch (error) {
+            auditLog.add({
+                action: 'setRank',
+                userId: req.robloxUserId,
+                success: false,
+                error: error.message,
+                ip: req.ip
+            });
+
             res.status(400).json({
                 success: false,
                 error: 'Rank change failed',
@@ -91,9 +120,31 @@ router.post('/api/promote',
         try {
             const userId = req.robloxUserId;
             const result = await ranking.promote(userId);
+
+            auditLog.add({
+                action: 'promote',
+                userId: userId,
+                oldRank: result.oldRank,
+                newRank: result.newRank,
+                success: result.success,
+                ip: req.ip
+            });
+
+            if (result.success && result.changed) {
+                webhook.notifyPromotion(result);
+            }
+
             res.json(result);
 
         } catch (error) {
+            auditLog.add({
+                action: 'promote',
+                userId: req.robloxUserId,
+                success: false,
+                error: error.message,
+                ip: req.ip
+            });
+
             res.status(400).json({
                 success: false,
                 error: 'Promotion failed',
@@ -114,9 +165,31 @@ router.post('/api/demote',
         try {
             const userId = req.robloxUserId;
             const result = await ranking.demote(userId);
+
+            auditLog.add({
+                action: 'demote',
+                userId: userId,
+                oldRank: result.oldRank,
+                newRank: result.newRank,
+                success: result.success,
+                ip: req.ip
+            });
+
+            if (result.success && result.changed) {
+                webhook.notifyDemotion(result);
+            }
+
             res.json(result);
 
         } catch (error) {
+            auditLog.add({
+                action: 'demote',
+                userId: req.robloxUserId,
+                success: false,
+                error: error.message,
+                ip: req.ip
+            });
+
             res.status(400).json({
                 success: false,
                 error: 'Demotion failed',
@@ -274,6 +347,21 @@ router.post('/api/rank/username',
             // Add username to result
             result.username = username;
 
+            auditLog.add({
+                action: 'setRank',
+                userId: userId,
+                username: username,
+                targetRank: rankName || rank,
+                oldRank: result.oldRank,
+                newRank: result.newRank,
+                success: result.success,
+                ip: req.ip
+            });
+
+            if (result.success && result.changed) {
+                webhook.notifyRankChange(result);
+            }
+
             res.json(result);
 
         } catch (error) {
@@ -310,6 +398,20 @@ router.post('/api/promote/username',
 
             // Add username to result
             result.username = username;
+
+            auditLog.add({
+                action: 'promote',
+                userId: userId,
+                username: username,
+                oldRank: result.oldRank,
+                newRank: result.newRank,
+                success: result.success,
+                ip: req.ip
+            });
+
+            if (result.success && result.changed) {
+                webhook.notifyPromotion(result);
+            }
 
             res.json(result);
 
@@ -348,6 +450,20 @@ router.post('/api/demote/username',
             // Add username to result
             result.username = username;
 
+            auditLog.add({
+                action: 'demote',
+                userId: userId,
+                username: username,
+                oldRank: result.oldRank,
+                newRank: result.newRank,
+                success: result.success,
+                ip: req.ip
+            });
+
+            if (result.success && result.changed) {
+                webhook.notifyDemotion(result);
+            }
+
             res.json(result);
 
         } catch (error) {
@@ -359,6 +475,182 @@ router.post('/api/demote/username',
         }
     }
 );
+
+// ============================================
+// BULK OPERATIONS
+// ============================================
+
+/**
+ * POST /api/rank/bulk
+ * Rank multiple users at once
+ * Body: { users: [{ userId: number, rank: number }] } OR { users: [{ username: string, rankName: string }] }
+ */
+router.post('/api/rank/bulk',
+    async (req, res, next) => {
+        try {
+            const { users } = req.body;
+
+            if (!users || !Array.isArray(users) || users.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Missing required field',
+                    message: 'users array is required'
+                });
+            }
+
+            if (users.length > 10) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Too many users',
+                    message: 'Maximum 10 users per bulk operation'
+                });
+            }
+
+            const results = [];
+
+            for (const user of users) {
+                try {
+                    let userId = user.userId;
+                    let username = user.username;
+
+                    // Get userId from username if needed
+                    if (!userId && username) {
+                        userId = await ranking.getUserIdFromUsername(username);
+                    }
+
+                    if (!userId) {
+                        results.push({
+                            userId: user.userId,
+                            username: user.username,
+                            success: false,
+                            error: 'Invalid user identifier'
+                        });
+                        continue;
+                    }
+
+                    let result;
+                    if (user.rankName) {
+                        result = await ranking.setRankByName(userId, user.rankName);
+                    } else if (user.rank !== undefined) {
+                        result = await ranking.setRank(userId, user.rank);
+                    } else {
+                        results.push({
+                            userId,
+                            username,
+                            success: false,
+                            error: 'No rank specified'
+                        });
+                        continue;
+                    }
+
+                    result.username = username;
+                    results.push(result);
+
+                    auditLog.add({
+                        action: 'setRank',
+                        userId,
+                        username,
+                        oldRank: result.oldRank,
+                        newRank: result.newRank,
+                        success: result.success,
+                        ip: req.ip
+                    });
+
+                } catch (error) {
+                    results.push({
+                        userId: user.userId,
+                        username: user.username,
+                        success: false,
+                        error: error.message
+                    });
+                }
+            }
+
+            const successful = results.filter(r => r.success).length;
+            const failed = results.filter(r => !r.success).length;
+
+            res.json({
+                success: true,
+                message: `Processed ${results.length} users: ${successful} successful, ${failed} failed`,
+                results
+            });
+
+        } catch (error) {
+            res.status(400).json({
+                success: false,
+                error: 'Bulk operation failed',
+                message: error.message
+            });
+        }
+    }
+);
+
+// ============================================
+// AUDIT LOG ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/logs
+ * Get audit logs
+ * Query: action, limit, offset
+ */
+router.get('/api/logs', (req, res) => {
+    try {
+        const options = {
+            action: req.query.action,
+            limit: parseInt(req.query.limit) || 50,
+            offset: parseInt(req.query.offset) || 0
+        };
+
+        const logs = auditLog.getAll(options);
+
+        res.json({
+            success: true,
+            ...logs
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get logs',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/stats
+ * Get statistics
+ */
+router.get('/api/stats', (req, res) => {
+    try {
+        const botUser = client.getBotUser();
+        const botRank = client.getBotRank();
+        const roles = ranking.getAllRoles();
+        const logStats = auditLog.getStats();
+
+        res.json({
+            success: true,
+            bot: {
+                username: botUser?.UserName,
+                userId: botUser?.UserID,
+                rank: botRank
+            },
+            group: {
+                roleCount: roles.length,
+                assignableRoles: roles.filter(r => r.canAssign).length
+            },
+            operations: logStats
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get stats',
+            message: error.message
+        });
+    }
+});
 
 // ============================================
 // 404 Handler
@@ -374,8 +666,11 @@ router.use((req, res) => {
             'GET  /api/rank/:userId',
             'GET  /api/user/:username',
             'GET  /api/roles',
+            'GET  /api/logs',
+            'GET  /api/stats',
             'POST /api/rank',
             'POST /api/rank/username',
+            'POST /api/rank/bulk',
             'POST /api/promote',
             'POST /api/promote/username',
             'POST /api/demote',

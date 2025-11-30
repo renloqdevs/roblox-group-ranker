@@ -1,6 +1,6 @@
 # Roblox Group Ranking Bot
 
-A self-hosted API for automating Roblox group ranking operations. Deploy for free on Railway and integrate with your games, Discord bots, or custom applications.
+A self-hosted API for automating Roblox group ranking operations. Deploy for free on Railway and integrate with your games, Discord bots, or custom applications. Includes a desktop console UI for easy management.
 
 ## Quick Start
 
@@ -39,6 +39,54 @@ A self-hosted API for automating Roblox group ranking operations. Deploy for fre
 
 Visit `https://your-app.up.railway.app/health` to confirm the bot is running.
 
+## Console UI
+
+A desktop terminal application for managing your ranking bot without writing code.
+
+### Launch
+
+**Windows:**
+```batch
+launch.bat
+```
+
+**macOS/Linux:**
+```bash
+chmod +x launch.sh
+./launch.sh
+```
+
+### Features
+
+- Interactive dashboard with live status
+- Rank, promote, and demote users
+- Search members by username or ID
+- View all group roles
+- Activity logs with export to CSV
+- Multiple color themes
+- First-run setup wizard
+
+### Screenshots
+
+```
++------------------------------------------------------------------+
+|  RANKBOT CONSOLE                                      v1.0.0     |
++------------------------------------------------------------------+
+|                                                                  |
+|  Bot: GroupRankBot              Group: My Awesome Group          |
+|  Status: Online                 Members: 1,234                   |
+|  Uptime: 2h 34m 12s             Roles: 8                         |
+|                                                                  |
+|  [1] Rank User              [5] View Roles                       |
+|  [2] Promote User           [6] Activity Logs                    |
+|  [3] Demote User            [7] Settings                         |
+|  [4] Search Members         [8] Help                             |
+|                                                                  |
+|  [Q] Quit                                                        |
+|                                                                  |
++------------------------------------------------------------------+
+```
+
 ## API Overview
 
 All endpoints except `/health` require the `x-api-key` header.
@@ -49,8 +97,11 @@ All endpoints except `/health` require the `x-api-key` header.
 | GET | `/api/rank/:userId` | Get user's rank |
 | GET | `/api/user/:username` | Get user by username |
 | GET | `/api/roles` | List all group roles |
+| GET | `/api/logs` | Get audit logs |
+| GET | `/api/stats` | Get statistics |
 | POST | `/api/rank` | Set user's rank |
 | POST | `/api/rank/username` | Set rank by username |
+| POST | `/api/rank/bulk` | Bulk rank operation |
 | POST | `/api/promote` | Promote user |
 | POST | `/api/promote/username` | Promote by username |
 | POST | `/api/demote` | Demote user |
@@ -84,6 +135,14 @@ end
 | `RATE_LIMIT_MAX` | No | 30 | Max requests per 15 minutes |
 | `MIN_RANK` | No | 1 | Minimum assignable rank |
 | `MAX_RANK` | No | 255 | Maximum assignable rank |
+| `WEBHOOK_URL` | No | - | Discord webhook for notifications |
+
+## Webhook Notifications
+
+Set the `WEBHOOK_URL` environment variable to receive Discord notifications for:
+- Rank changes
+- Promotions
+- Demotions
 
 ## Troubleshooting
 
