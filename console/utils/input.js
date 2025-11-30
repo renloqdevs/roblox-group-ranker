@@ -62,7 +62,16 @@ class InputHandler {
      * Handle keypress event
      */
     handleKeypress(str, key) {
-        if (!key) return;
+        // Ensure key object exists
+        if (!key) {
+            key = {};
+        }
+
+        // Normalize escape key at the top level
+        // On some systems/terminals, ESC comes as str='\x1b' with key.name undefined
+        if (str === '\x1b' || str === '\u001b' || str === '\x1B') {
+            key.name = 'escape';
+        }
 
         // Handle Ctrl+C to exit
         if (key.ctrl && key.name === 'c') {
@@ -261,6 +270,13 @@ class InputHandler {
         // Check specific listeners
         if (this.listeners.has(keyId)) {
             const callback = this.listeners.get(keyId);
+            callback(key);
+            return;
+        }
+
+        // Also check key.name directly in case keyId transformation affected it
+        if (key.name && key.name !== keyId && this.listeners.has(key.name)) {
+            const callback = this.listeners.get(key.name);
             callback(key);
             return;
         }
