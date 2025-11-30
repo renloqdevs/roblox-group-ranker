@@ -124,10 +124,11 @@ class HelpScreen {
             { key: '2', action: 'Promote User' },
             { key: '3', action: 'Demote User' },
             { key: '4', action: 'Search Members' },
-            { key: '5', action: 'View Roles' },
-            { key: '6', action: 'Activity Logs' },
-            { key: '7', action: 'Settings' },
-            { key: '8', action: 'Help' }
+            { key: '5', action: 'Favorites' },
+            { key: '6', action: 'View Roles' },
+            { key: '7', action: 'Activity Logs' },
+            { key: '8', action: 'Settings' },
+            { key: '9', action: 'Help' }
         ];
 
         let currentY = y + 3;

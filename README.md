@@ -2,6 +2,16 @@
 
 A self-hosted API for automating Roblox group ranking operations. Deploy for free on Railway and integrate with your games, Discord bots, or custom applications. Includes a desktop console UI for easy management.
 
+## Why This Over Others?
+
+Most Roblox ranking bots are barebones scripts with minimal features. This project is different:
+
+- **Complete API** - 13 endpoints covering every ranking operation, including bulk actions
+- **Security-first** - Brute-force protection, IP allowlisting, request deduplication, rate limiting, and audit logging out of the box
+- **Desktop Console** - Full terminal UI with password protection, themes, favorites, and activity tracking - no code required
+- **Production-ready** - Webhook notifications, detailed health checks, graceful error handling, and comprehensive logging
+- **Actually maintained** - Active development with proper documentation
+
 ## Quick Start
 
 ### 1. Create a Bot Account

@@ -389,7 +389,13 @@ class SettingsScreen {
         this.state.testResult = null;
         await this.render();
 
+        // Show spinner during connection test
+        const { height } = renderer.getDimensions();
+        const spinnerId = animations.startSpinner(3, height - 5, 'bounce', 'Testing connection...');
+
         const result = await api.testConnection();
+        
+        animations.stopSpinner(spinnerId);
         this.state.testResult = result;
         this.state.testingConnection = false;
 

@@ -200,6 +200,17 @@ class RolesScreen {
             }
         });
 
+        // Page Up/Down for faster navigation
+        input.on('pageup', () => {
+            this.state.selectedIndex = Math.max(0, this.state.selectedIndex - 5);
+            this.render();
+        });
+
+        input.on('pagedown', () => {
+            this.state.selectedIndex = Math.min(this.state.roles.length - 1, this.state.selectedIndex + 5);
+            this.render();
+        });
+
         input.on('r', async () => {
             this.state.loading = true;
             await this.render();

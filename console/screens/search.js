@@ -279,6 +279,10 @@ class SearchScreen {
         this.state.loading = true;
         await this.render();
 
+        // Show spinner during user fetch
+        const { height } = renderer.getDimensions();
+        const spinnerId = animations.startSpinner(3, height - 5, 'bounce', 'Fetching user details...');
+
         try {
             // Get full user details
             const user = await api.getUserRank(selectedResult.userId);
@@ -291,6 +295,7 @@ class SearchScreen {
             this.state.error = e.message;
         }
 
+        animations.stopSpinner(spinnerId);
         this.state.loading = false;
         await this.render();
         this.setupInput();

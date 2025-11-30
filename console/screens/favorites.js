@@ -57,14 +57,19 @@ class FavoritesScreen {
         }
 
         // Key hints
-        components.drawKeyHints([
+        const totalPages = Math.ceil(this.state.favorites.length / this.state.pageSize);
+        const hints = [
             { key: 'UP/DOWN', action: 'Navigate' },
             { key: 'ENTER', action: 'Quick Rank' },
-            { key: 'P', action: 'Promote' },
-            { key: 'D', action: 'Demote' },
-            { key: 'X', action: 'Remove' },
-            { key: 'ESC', action: 'Back' }
-        ]);
+            { key: '+', action: 'Promote' },
+            { key: '-', action: 'Demote' },
+            { key: 'X', action: 'Remove' }
+        ];
+        if (totalPages > 1) {
+            hints.push({ key: 'N/P', action: 'Page' });
+        }
+        hints.push({ key: 'ESC', action: 'Back' });
+        components.drawKeyHints(hints);
     }
 
     /**
@@ -110,7 +115,7 @@ class FavoritesScreen {
 
             const itemY = y + 2 + index;
 
-            renderer.writeAt(x, itemY, `${prefix} ${color}${fav.username.padEnd(22)}${renderer.constructor.ANSI.RESET}`);
+            renderer.writeAt(x, itemY, `${prefix} ${color}${format.truncate(fav.username, 20).padEnd(22)}${renderer.constructor.ANSI.RESET}`);
             renderer.writeAt(x + 25, itemY, `${dimColor}${(fav.lastRankName || 'Unknown').substring(0, 18)}${renderer.constructor.ANSI.RESET}`);
             renderer.writeAt(x + 45, itemY, `${dimColor}${fav.useCount || 0}${renderer.constructor.ANSI.RESET}`);
         });
@@ -148,10 +153,12 @@ class FavoritesScreen {
         input.on('pagedown', () => this.changePage(1));
         input.on('pageup', () => this.changePage(-1));
 
-        // Actions
+        // Actions - use + and - for promote/demote to avoid conflict with P for page
         input.on('return', () => this.quickRank());
-        input.on('p', () => this.promoteSelected());
-        input.on('d', () => this.demoteSelected());
+        input.on('+', () => this.promoteSelected());
+        input.on('=', () => this.promoteSelected());  // = is same key as + without shift
+        input.on('-', () => this.demoteSelected());
+        input.on('d', () => this.demoteSelected());   // D also works for demote
         input.on('x', () => this.removeSelected());
 
         // Back
@@ -212,6 +219,17 @@ class FavoritesScreen {
         if (this.state.favorites.length === 0) return;
         
         const selected = this.state.favorites[this.state.selectedIndex];
+        
+        // Confirm before promoting
+        components.drawConfirmDialog(`Promote ${selected.username}?`);
+        const confirmed = await input.confirm(true);
+        
+        if (!confirmed) {
+            await this.render();
+            this.setupInput();
+            return;
+        }
+        
         config.incrementFavoriteUse(selected.userId);
 
         // Show loading
@@ -259,6 +277,17 @@ class FavoritesScreen {
         if (this.state.favorites.length === 0) return;
         
         const selected = this.state.favorites[this.state.selectedIndex];
+        
+        // Confirm before demoting
+        components.drawConfirmDialog(`Demote ${selected.username}?`);
+        const confirmed = await input.confirm(true);
+        
+        if (!confirmed) {
+            await this.render();
+            this.setupInput();
+            return;
+        }
+        
         config.incrementFavoriteUse(selected.userId);
 
         // Show loading

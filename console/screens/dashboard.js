@@ -37,7 +37,7 @@ class DashboardScreen {
         renderer.hideCursor();
 
         // Draw main frame
-        const { contentY } = components.drawFrame('RANKBOT CONSOLE', 'v1.1.0');
+        const { contentY } = components.drawFrame('RANKBOT CONSOLE', 'v1.1.1');
 
         let yOffset = 0;
 
@@ -224,9 +224,8 @@ class DashboardScreen {
         // Refresh
         input.on('r', () => this.refresh());
 
-        // Quit
+        // Quit - only Q key, ESC does nothing on dashboard (it's the main screen)
         input.on('q', () => this.confirmQuit());
-        input.on('escape', () => this.confirmQuit());
     }
 
     /**

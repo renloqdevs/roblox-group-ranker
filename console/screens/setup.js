@@ -120,9 +120,12 @@ class SetupScreen {
         const labelColor = renderer.color('label');
         const dimColor = renderer.color('textDim');
 
+        // Mask the API key for security
+        const maskedKey = '*'.repeat(this.state.apiKey.length);
+
         renderer.writeAt(x, y, `${labelColor}API Key${renderer.constructor.ANSI.RESET}`);
         renderer.writeAt(x, y + 2, `${textColor}Enter your API key (from your .env file):${renderer.constructor.ANSI.RESET}`);
-        renderer.writeAt(x, y + 4, `${labelColor}>${renderer.constructor.ANSI.RESET} ${this.state.apiKey}_`);
+        renderer.writeAt(x, y + 4, `${labelColor}>${renderer.constructor.ANSI.RESET} ${maskedKey}_`);
 
         renderer.writeAt(x, y + 7, `${dimColor}This is the API_KEY value you configured in Railway${renderer.constructor.ANSI.RESET}`);
         renderer.writeAt(x, y + 9, `${dimColor}Press ENTER to continue, ESC to go back${renderer.constructor.ANSI.RESET}`);
