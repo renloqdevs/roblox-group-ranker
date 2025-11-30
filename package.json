@@ -1,6 +1,6 @@
 {
   "name": "roblox-ranking-bot",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "A self-hosted Roblox group ranking bot with API endpoints and console UI",
   "main": "src/index.js",
   "scripts": {

@@ -42,7 +42,7 @@ class Components {
     /**
      * Draw the main application frame
      */
-    drawFrame(title = 'RANKBOT CONSOLE', version = 'v1.0.0') {
+    drawFrame(title = 'RANKBOT CONSOLE', version = 'v1.0.9') {
         const { width, height } = renderer.getDimensions();
         
         renderer.clear();
