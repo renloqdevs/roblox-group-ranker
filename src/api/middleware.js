@@ -312,39 +312,26 @@ function errorHandler(err, req, res, next) {
 }
 
 /**
- * Security headers middleware
- * Adds comprehensive security-related HTTP headers
+ * Additional security headers middleware
+ * Adds security headers beyond what Helmet.js provides
+ * Note: Most security headers are now handled by Helmet.js in server.js
  */
-function securityHeaders(req, res, next) {
-    // Prevent MIME sniffing
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    
-    // Prevent clickjacking
-    res.setHeader('X-Frame-Options', 'DENY');
-    
-    // XSS protection (legacy, but still useful for older browsers)
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    
-    // Content Security Policy - restrictive for API server
-    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
-    
-    // Referrer policy - don't leak referrer info
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    
+function additionalSecurityHeaders(req, res, next) {
     // Permissions policy - disable unnecessary browser features
-    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    // Helmet doesn't set this by default
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=()');
     
-    // HTTPS enforcement (HSTS) - only in production
-    if (process.env.NODE_ENV === 'production' || process.env.ENABLE_HSTS === 'true') {
-        // max-age=1 year, include subdomains, allow preload
-        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-    }
-    
-    // Remove fingerprinting headers
-    res.removeHeader('X-Powered-By');
+    // Cache control for API responses - prevent caching of sensitive data
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     
     next();
 }
+
+// Legacy alias for backwards compatibility
+const securityHeaders = additionalSecurityHeaders;
 
 /**
  * Input validation middleware
@@ -574,6 +561,7 @@ module.exports = {
     validateRank,
     validateUsername,
     securityHeaders,
+    additionalSecurityHeaders,
     requestId,
     cors,
     checkRankCooldown,

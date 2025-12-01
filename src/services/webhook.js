@@ -246,20 +246,100 @@ class WebhookService {
     }
 
     /**
+     * Send session unhealthy alert (cookie expired/invalid)
+     */
+    async notifySessionUnhealthy(data) {
+        const payload = this.formatDiscordEmbed({
+            title: '⚠️ SESSION CRITICAL - Cookie Invalid',
+            color: 0xff0000, // Bright red
+            description: 'The Roblox authentication cookie has expired or been invalidated. **Immediate action required!**',
+            fields: [
+                { name: 'Status', value: 'UNHEALTHY', inline: true },
+                { name: 'Bot User', value: data.botUser?.username || 'Unknown', inline: true },
+                { name: 'Reason', value: data.reason || 'Cookie validation failed', inline: false },
+                { name: 'Action Required', value: '1. Get a fresh .ROBLOSECURITY cookie\n2. Update the ROBLOX_COOKIE environment variable\n3. Restart the bot', inline: false }
+            ],
+            timestamp: new Date().toISOString()
+        });
+
+        await this.send(payload);
+    }
+
+    /**
+     * Send session recovered notification
+     */
+    async notifySessionRecovered(data) {
+        const payload = this.formatDiscordEmbed({
+            title: '✅ Session Recovered',
+            color: 0x2ecc71, // Green
+            description: 'The Roblox session has been restored and is now healthy.',
+            fields: [
+                { name: 'Status', value: 'HEALTHY', inline: true },
+                { name: 'Bot User', value: data.user?.UserName || 'Unknown', inline: true }
+            ],
+            timestamp: new Date().toISOString()
+        });
+
+        await this.send(payload);
+    }
+
+    /**
+     * Send server startup notification
+     */
+    async notifyServerStartup(data) {
+        const payload = this.formatDiscordEmbed({
+            title: '🚀 Ranking Bot Online',
+            color: 0x3498db, // Blue
+            description: 'The ranking bot has started successfully.',
+            fields: [
+                { name: 'Bot Account', value: data.botUser?.UserName || 'Unknown', inline: true },
+                { name: 'Bot Rank', value: String(data.botRank || 0), inline: true },
+                { name: 'Assignable Roles', value: String(data.assignableRoles || 0), inline: true },
+                { name: 'Version', value: data.version || '1.2.0', inline: true }
+            ],
+            timestamp: new Date().toISOString()
+        });
+
+        await this.send(payload);
+    }
+
+    /**
+     * Send server shutdown notification
+     */
+    async notifyServerShutdown(reason) {
+        const payload = this.formatDiscordEmbed({
+            title: '⏹️ Ranking Bot Offline',
+            color: 0x95a5a6, // Gray
+            description: 'The ranking bot is shutting down.',
+            fields: [
+                { name: 'Reason', value: reason || 'Manual shutdown', inline: false }
+            ],
+            timestamp: new Date().toISOString()
+        });
+
+        await this.send(payload);
+    }
+
+    /**
      * Format payload as Discord embed
      */
     formatDiscordEmbed(embed) {
-        return {
-            embeds: [{
-                title: embed.title,
-                color: embed.color,
-                fields: embed.fields,
-                timestamp: embed.timestamp,
-                footer: {
-                    text: 'RankBot'
-                }
-            }]
+        const embedObj = {
+            title: embed.title,
+            color: embed.color,
+            fields: embed.fields,
+            timestamp: embed.timestamp,
+            footer: {
+                text: 'RankBot'
+            }
         };
+
+        // Add description if provided
+        if (embed.description) {
+            embedObj.description = embed.description;
+        }
+
+        return { embeds: [embedObj] };
     }
 
     /**

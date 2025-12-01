@@ -4,6 +4,8 @@
  */
 
 const express = require('express');
+const helmet = require('helmet');
+const compression = require('compression');
 const config = require('../config');
 const routes = require('./routes');
 const middleware = require('./middleware');
@@ -19,20 +21,78 @@ function createApp() {
     // Trust proxy (required for Railway and other platforms)
     app.set('trust proxy', 1);
 
+    // Helmet.js - comprehensive security headers (industry standard)
+    // This replaces our custom securityHeaders middleware with battle-tested defaults
+    app.use(helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'none'"],
+                frameAncestors: ["'none'"]
+            }
+        },
+        crossOriginEmbedderPolicy: false, // Not needed for API server
+        crossOriginOpenerPolicy: false,   // Not needed for API server
+        crossOriginResourcePolicy: { policy: 'same-origin' },
+        hsts: process.env.NODE_ENV === 'production' || process.env.ENABLE_HSTS === 'true'
+            ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+            : false
+    }));
+
+    // Response compression (gzip/brotli)
+    // Significantly reduces bandwidth for JSON responses
+    app.use(compression({
+        level: 6, // Balance between speed and compression ratio
+        threshold: 1024, // Only compress responses > 1KB
+        filter: (req, res) => {
+            // Don't compress if client doesn't accept it
+            if (req.headers['x-no-compression']) return false;
+            return compression.filter(req, res);
+        }
+    }));
+
     // Request ID tracking
     app.use(middleware.requestId);
 
     // CORS support
     app.use(middleware.cors);
 
-    // Security headers
-    app.use(middleware.securityHeaders);
+    // Additional security headers (beyond Helmet defaults)
+    app.use(middleware.additionalSecurityHeaders);
 
-    // Parse JSON bodies with size limit
-    app.use(express.json({ limit: '1mb' }));
+    // Parse JSON bodies with size limit and proper error handling
+    app.use(express.json({ 
+        limit: '1mb',
+        strict: true, // Only accept arrays and objects
+        verify: (req, res, buf, encoding) => {
+            // Store raw body for signature verification if needed
+            req.rawBody = buf;
+        }
+    }));
 
     // Parse URL-encoded bodies with size limit
     app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+    // Body parser error handler (413, 400 for malformed JSON)
+    app.use((err, req, res, next) => {
+        if (err.type === 'entity.too.large') {
+            return res.status(413).json({
+                success: false,
+                error: 'Payload too large',
+                errorCode: 'E_PAYLOAD_TOO_LARGE',
+                message: 'Request body exceeds the 1MB limit',
+                maxSize: '1MB'
+            });
+        }
+        if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid JSON',
+                errorCode: 'E_INVALID_JSON',
+                message: 'Request body contains invalid JSON syntax'
+            });
+        }
+        next(err);
+    });
 
     // Apply rate limiting to all requests
     app.use(middleware.rateLimiter);

@@ -70,7 +70,7 @@ router.get('/health', (req, res) => {
         status: 'ok',
         timestamp: new Date().toISOString(),
         uptime: Math.floor((Date.now() - serverStartTime) / 1000),
-        version: '1.1.1',
+        version: '1.2.0',
         // Only expose whether bot is connected, not details
         botConnected: !!botUser
     });
@@ -93,19 +93,70 @@ router.get('/live', (req, res) => {
 router.get('/ready', (req, res) => {
     const botUser = client.getBotUser();
     const botRank = client.getBotRank();
+    const sessionHealth = client.getSessionHealth();
     
-    // Check if bot is connected and has sufficient rank to perform operations
-    if (botUser && botRank > 0) {
+    // Check if bot is connected, has sufficient rank, and session is healthy
+    if (botUser && botRank > 0 && sessionHealth.healthy) {
         res.status(200).json({ 
             status: 'ready',
             botConnected: true,
-            botRank: botRank
+            botRank: botRank,
+            sessionHealthy: true
         });
     } else {
         res.status(503).json({ 
             status: 'not ready',
             botConnected: !!botUser,
-            reason: !botUser ? 'Bot not connected' : 'Bot has insufficient rank'
+            sessionHealthy: sessionHealth.healthy,
+            reason: !botUser ? 'Bot not connected' : 
+                    !sessionHealth.healthy ? 'Session unhealthy - cookie may be expired' :
+                    'Bot has insufficient rank'
+        });
+    }
+});
+
+/**
+ * GET /session
+ * Get session health status (public, no auth required)
+ * Returns session health information for monitoring
+ */
+router.get('/session', (req, res) => {
+    const sessionHealth = client.getSessionHealth();
+    
+    res.json({
+        status: sessionHealth.healthy ? 'healthy' : 'unhealthy',
+        healthy: sessionHealth.healthy,
+        lastCheck: sessionHealth.lastCheck,
+        consecutiveFailures: sessionHealth.consecutiveFailures,
+        monitoringActive: sessionHealth.monitoringActive,
+        botConnected: !!sessionHealth.botUser
+    });
+});
+
+/**
+ * POST /api/session/check
+ * Force a session health check (authenticated)
+ * Returns immediate health check result
+ */
+router.post(['/api/session/check', '/v1/api/session/check'], middleware.authenticate, async (req, res) => {
+    try {
+        const result = await client.forceHealthCheck();
+        
+        res.json({
+            success: true,
+            session: {
+                healthy: result.healthy,
+                timestamp: result.timestamp,
+                consecutiveFailures: result.consecutiveFailures
+            },
+            message: result.healthy ? 'Session is healthy' : 'Session is unhealthy - cookie may be expired'
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Health check failed',
+            errorCode: 'E_SESSION_CHECK',
+            message: error.message
         });
     }
 });
@@ -121,6 +172,7 @@ router.get('/health/detailed', middleware.authenticate, (req, res) => {
     const logStats = auditLog.getStats();
     const memUsage = process.memoryUsage();
     const securityStats = middleware.getSecurityStats();
+    const sessionHealth = client.getSessionHealth();
     
     res.json({
         status: 'ok',
@@ -129,13 +181,19 @@ router.get('/health/detailed', middleware.authenticate, (req, res) => {
             seconds: Math.floor((Date.now() - serverStartTime) / 1000),
             formatted: formatUptime(Date.now() - serverStartTime)
         },
-        version: '1.1.1',
+        version: '1.2.0',
         bot: botUser ? {
             username: botUser.UserName,
             userId: botUser.UserID,
             rank: botRank,
             rankableLevels: roles.filter(r => r.canAssign).length
         } : null,
+        session: {
+            healthy: sessionHealth.healthy,
+            lastCheck: sessionHealth.lastCheck,
+            consecutiveFailures: sessionHealth.consecutiveFailures,
+            monitoringActive: sessionHealth.monitoringActive
+        },
         group: {
             totalRoles: roles.length,
             assignableRoles: roles.filter(r => r.canAssign).length
@@ -1230,7 +1288,9 @@ router.use((req, res) => {
                 'GET  /health',
                 'GET  /health/detailed',
                 'GET  /live',
-                'GET  /ready'
+                'GET  /ready',
+                'GET  /session',
+                'POST /api/session/check'
             ],
             users: [
                 'GET  /api/rank/:userId',
